@@ -1,3 +1,5 @@
+# Local development config for the Worker build. Production runs as a Cloudflare Pages project
+# (public/ + functions/), with bindings and secrets set in the Cloudflare dashboard/API.
 name = "savemysecrets"
 main = "src/worker.js"
 compatibility_date = "2025-09-01"
@@ -10,15 +12,8 @@ run_worker_first = true
 [[d1_databases]]
 binding = "DB"
 database_name = "savemysecrets"
-database_id = "LOCAL-PLACEHOLDER"
-
-# [[r2_buckets]]
-# binding = "DOCS"
-# bucket_name = "savemysecrets-docs"
-
-[triggers]
-crons = ["17 6 * * *"]   # daily 06:17 UTC
+database_id = "LOCAL"
 
 [vars]
 CLAUDE_MODEL = "claude-sonnet-4-5"
-# Secrets (wrangler secret put): APP_SECRET, ADMIN_TOKEN, ANTHROPIC_API_KEY, RESEND_API_KEY, TWILIO_SID, TWILIO_TOKEN, TWILIO_FROM, TWILIO_WA_FROM
+# Secrets (never committed): APP_SECRET, ADMIN_TOKEN, ANTHROPIC_API_KEY, RESEND_API_KEY, TWILIO_*
