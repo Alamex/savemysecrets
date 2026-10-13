@@ -41,7 +41,7 @@
   <div id="after" class="hide">
     <div class="qcard">
       <b>What happens next</b>
-      <p class="muted small">1. If you asked for one, the death certificate is uploaded and checked.<br>2. A person at Save My Secrets reviews everything.<br>3. You get a final window, with alerts by email, text and WhatsApp, to say "I'm fine" and stop it.<br>4. Only then is the vault opened for them.</p>
+      <p class="muted small">1. If you asked for one, the death certificate is uploaded and checked automatically.<br>2. You get a final window, with alerts by email, text and WhatsApp, to say "I'm fine" and stop it.<br>3. Only then is the vault opened for them.</p>
     </div>
     <button class="ghost" id="again" style="width:100%">Try again with different answers</button>
   </div>
@@ -114,7 +114,7 @@ $('ans').onsubmit = async e => {
     const pass = got >= need;
     setTimeout(() => {
       bubble('ai', pass ? 'Thank you, that\'s everything I need from the questions. We\'ll take you through the remaining checks next.'
-        : 'Thank you. I\'m not able to confirm this from those answers, so we\'ll pass your request to a person at Save My Secrets to look at.',
+        : 'Thank you. I\'m not able to confirm this from those answers. You can try again later, but each attempt adds a longer wait.',
         { c: pass ? 'ok' : 'bad', t: `Preview note: ${got} of ${set.length} accepted, ${need} needed: ${pass ? 'passed' : 'not passed'}` });
       $('after').classList.remove('hide');
     }, 500);
