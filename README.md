@@ -67,7 +67,8 @@ npx wrangler d1 execute savemysecrets --local --file=schema.sql
 printf 'APP_SECRET=dev\nADMIN_TOKEN=admin-dev-token\n' > .dev.vars
 npx wrangler dev --port 8787
 node test/e2e.mjs
-node test/ui.mjs     # iPhone-sized browser test, screenshots in shots/
+node test/ui.mjs       # iPhone-sized browser test, screenshots in shots/
+node test/journey.mjs  # full owner journey: sign up, vault, log out and in, lost-phone recovery
 ```
 
 ## Privacy

@@ -393,6 +393,8 @@ async function api(req, env) {
       const vd = Math.max(3, Math.min(30, Number(body.veto_days) || 7));
       await env.DB.prepare('UPDATE users SET checkin_days=?, grace_weeks=?, proof_required=?, veto_days=?, phone=COALESCE(?,phone) WHERE id=?')
         .bind(cd, gw, pr, vd, body.phone || null, u.id).run();
+      // Saving rules is proof of life too, and the next check-in moves to match the new frequency
+      if (u.next_checkin_at) await resetCheckin(env, { ...u, checkin_days: cd }, 'rules changed');
       return json({ ok: true });
     }
     if (p === '/api/me/nominees' && m === 'POST') {

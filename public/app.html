@@ -243,17 +243,21 @@ function renderAll() {
   $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks; $('rProof').value = me.policy.proof_required;
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
-window.delItem = i => { vault.items.splice(i, 1); renderAll(); flash('Removed. Save the vault to make it permanent.'); };
+window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
 window.delNom = async id => { await call('/api/me/nominees/' + id, { method: 'DELETE' }); me = await call('/api/me'); renderAll(); };
+// Keep the letter in memory as it's typed, so re-rendering after other edits never wipes it
+let dirty = false;
+$('letter').oninput = () => { vault.letter = $('letter').value; dirty = true; };
+window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 $('btnAdd').onclick = () => {
   if (!$('iTitle').value) return flash('Give it a title');
   vault.items.push({ type: $('iType').value, title: $('iTitle').value, body: $('iBody').value });
-  $('iTitle').value = $('iBody').value = ''; renderAll(); flash('Added. Save the vault to make it permanent.');
+  $('iTitle').value = $('iBody').value = ''; dirty = true; renderAll(); flash('Added. Save the vault to make it permanent.');
 };
 $('btnSave').onclick = async () => {
   vault.letter = $('letter').value;
   await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
-  flash('Vault encrypted and saved.', true);
+  dirty = false; flash('Vault encrypted and saved.', true);
 };
 $('btnNom').onclick = async () => {
   try {
@@ -268,7 +272,7 @@ $('btnRules').onclick = async () => {
 $('btnFine').onclick = async () => { await post('/api/me/checkin', {}); me = await call('/api/me'); renderAll(); flash('Checked in. Thank you.', true); };
 
 
-$('logout').onclick = async e => { e.preventDefault(); try { await post('/api/logout', {}); } catch {} location.reload(); };
+$('logout').onclick = async e => { e.preventDefault(); if (dirty && !confirm('You have unsaved changes to your vault. Log out anyway?')) return; dirty = false; try { await post('/api/logout', {}); } catch {} location.href = '/app'; };
 </script>
 </body>
 </html>
