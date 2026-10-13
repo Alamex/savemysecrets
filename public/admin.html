@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Review | Save My Secrets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+<nav><a class="logo" href="/">Save My <b>Secrets</b> · review</a></nav>
+<div class="row" style="max-width:520px"><input id="tok" type="password" placeholder="Admin token"><button id="go">Load</button></div>
+<p id="flash" class="small"></p>
+<div class="tabs"><button class="on" data-t="claims">Claims</button><button data-t="events">Events</button><button data-t="invites">Invites</button><button data-t="waitlist">Waitlist</button></div>
+<div id="out"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let tab = 'claims';
+$('tok').value = sessionStorage.getItem('adm') || '';
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function call(p, o = {}) {
+  const r = await fetch(p, { ...o, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + $('tok').value } });
+  const d = await r.json(); if (!r.ok) throw new Error(d.error); return d;
+}
+async function load() {
+  sessionStorage.setItem('adm', $('tok').value);
+  try {
+    if (tab === 'claims') {
+      const rows = await call('/api/admin/claims');
+      $('out').innerHTML = rows.map(c => {
+        const a = c.ai_assessment ? JSON.parse(c.ai_assessment) : null, d = c.doc_analysis ? JSON.parse(c.doc_analysis) : null;
+        const tr = JSON.parse(c.transcript || '[]');
+        return `<div class="card" style="margin:12px 0"><h3>${esc(c.owner_name)} <span class="small muted">claim by ${esc(c.claimant_name)} &lt;${esc(c.claimant_email)}&gt;</span></h3>
+        <p class="small">Status: <b>${esc(c.status)}</b> · Listed nominee: ${c.nominee_id ? 'yes (' + esc(c.nominee_name) + ', ' + esc(c.relationship) + ')' : '<b class="bad">NO</b>'} · Proof rule: ${esc(c.proof_required)}</p>
+        ${a ? `<p><b>AI assessment:</b> risk ${esc(a.risk)} · ${esc(a.recommendation)}<br>${esc(a.summary)}${(a.red_flags || []).length ? '<br><span class="bad">Red flags: ' + a.red_flags.map(esc).join('; ') + '</span>' : ''}</p>` : ''}
+        ${d ? `<p><b>Document check:</b></p><pre>${esc(JSON.stringify(d, null, 2))}</pre>` : ''}
+        ${c.doc_key ? `<p><a href="#" onclick="viewDoc('${esc(c.doc_key)}');return false">View uploaded document</a></p>` : ''}
+        <details><summary>Interview transcript (${tr.length})</summary>${tr.map(m => `<p><b>${m.role === 'user' ? 'Claimant' : 'AI'}:</b> ${esc(m.content)}</p>`).join('')}</details>
+        ${c.status === 'review' ? `<p></p><input id="note-${c.id}" placeholder="Note (e.g. GRO reference checked)"><p></p>
+          <div class="row"><button class="accent" onclick="decide('${c.id}','approve')">Approve (starts owner veto window)</button><button class="ghost" onclick="decide('${c.id}','reject')">Reject</button></div>` : ''}
+        </div>`; }).join('') || '<p class="muted">No claims.</p>';
+    } else if (tab === 'events') {
+      const rows = await call('/api/admin/events');
+      $('out').innerHTML = '<table><tr><th>When</th><th>User</th><th>Kind</th><th>Detail</th></tr>' + rows.map(e => `<tr><td>${new Date(e.at).toISOString().slice(0, 16)}</td><td>${esc(e.user_id)}</td><td>${esc(e.kind)}</td><td><pre>${esc(e.detail)}</pre></td></tr>`).join('') + '</table>';
+    } else if (tab === 'invites') {
+      const rows = await call('/api/admin/invites');
+      $('out').innerHTML = `<div class="card" style="max-width:520px"><h3>New invite code</h3>
+        <label>Code (leave blank to generate)</label><input id="invCode">
+        <label>Label</label><input id="invLabel" placeholder="e.g. Bitcoin conference stand">
+        <label>Maximum uses</label><input id="invMax" type="number" value="200">
+        <label>Expires after (days, blank = never)</label><input id="invExp" type="number"><p></p>
+        <button class="accent" onclick="mkInvite()">Create</button></div><p></p>
+        <table><tr><th>Code</th><th>Label</th><th>Used</th><th>Expires</th><th>Status</th><th>Share link</th></tr>` + rows.map(i => `<tr><td><b>${esc(i.code)}</b></td><td>${esc(i.label)}</td><td>${i.uses} / ${i.max_uses}</td><td>${i.expires_at ? new Date(i.expires_at).toISOString().slice(0, 10) : 'never'}</td>
+        <td><button class="ghost small" onclick="togInvite('${esc(i.code)}')">${i.active ? 'Active: disable' : 'Disabled: enable'}</button></td><td class="small">${location.origin}/app?invite=${esc(i.code)}</td></tr>`).join('') + '</table>';
+    } else {
+      const rows = await call('/api/admin/waitlist');
+      $('out').innerHTML = `<p>${rows.length} on the waitlist</p><table><tr><th>Email</th><th>Source</th><th>Joined</th></tr>` + rows.map(w => `<tr><td>${esc(w.email)}</td><td>${esc(w.source)}</td><td>${esc(String(w.created_at).slice(0, 10))}</td></tr>`).join('') + '</table>';
+    }
+    $('flash').textContent = '';
+  } catch (x) { $('flash').textContent = x.message; $('flash').className = 'small bad'; }
+}
+window.mkInvite = async () => { const d = await call('/api/admin/invites', { method: 'POST', body: JSON.stringify({ code: $('invCode').value, label: $('invLabel').value, max_uses: $('invMax').value, expires_days: $('invExp').value }) }); load(); };
+window.togInvite = async code => { await call('/api/admin/invites/toggle', { method: 'POST', body: JSON.stringify({ code }) }); load(); };
+window.decide = async (id, decision) => { await call('/api/admin/decide', { method: 'POST', body: JSON.stringify({ claimId: id, decision, note: $('note-' + id).value }) }); load(); };
+window.viewDoc = async key => {
+  const r = await fetch('/api/admin/doc?key=' + encodeURIComponent(key), { headers: { authorization: 'Bearer ' + $('tok').value } });
+  window.open(URL.createObjectURL(await r.blob()));
+};
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('on', x === b)); tab = b.dataset.t; load(); });
+$('go').onclick = load;
+if ($('tok').value) load();
+</script>
+</body>
+</html>

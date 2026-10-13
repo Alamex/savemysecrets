@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nominee access | Save My Secrets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script src="/crypto.js"></script>
+</head>
+<body>
+<div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
+<div class="narrow">
+<nav><a class="logo" href="/">Save My <b>Secrets</b></a></nav>
+<p id="flash" class="small"></p>
+
+<div id="s1">
+  <h2>You've been named as a trusted contact</h2>
+  <p class="muted">We're sorry if you're here because something has happened. We'll verify a few things to protect your loved one's wishes. It usually takes 10 minutes, then a human review.</p>
+  <form id="f1">
+    <label>Your full name</label><input id="cName" required>
+    <label>Your email (the one we contacted)</label><input id="cEmail" type="email" required>
+    <p></p><button class="accent" style="width:100%">Send me a code</button>
+  </form>
+</div>
+
+<div id="s2" class="hide">
+  <h2>Check your email</h2><p class="muted" id="s2msg"></p>
+  <form id="f2"><input id="cCode" inputmode="numeric" placeholder="6-digit code" required><p></p><button class="accent" style="width:100%">Continue</button></form>
+</div>
+
+<div id="s3" class="hide">
+  <h2>A few questions</h2>
+  <p class="small muted">You're speaking with our verification assistant. Take your time.</p>
+  <div class="chat" id="chat"></div>
+  <form id="f3" class="row"><textarea id="cMsg" style="min-height:70px" required placeholder="Your answer"></textarea><button class="accent">Send</button></form>
+</div>
+
+<div id="s4" class="hide">
+  <h2>Upload the death certificate</h2>
+  <p class="muted">A clear photo or scan of the official certificate. We check it against the issuing registry before anything is released.</p>
+  <form id="f4"><input id="cFile" type="file" accept="application/pdf,image/*" required><p></p><button class="accent" style="width:100%">Upload</button></form>
+</div>
+
+<div id="s5" class="hide">
+  <h2>Thank you</h2>
+  <p id="s5msg" class="muted">Your request is with our review team. We'll email you when there's an update. You can close this page and come back to it later using the link in your email.</p>
+  <button class="ghost" id="btnCheck" style="width:100%">Check status</button>
+</div>
+
+<div id="s6" class="hide">
+  <h2>Access released</h2>
+  <p class="muted" id="s6msg"></p>
+  <div id="codeWrap"><label>Legacy code (from the card or letter you were given)</label><input id="cLegacy" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autocomplete="off"></div>
+  <p></p><button class="accent" id="btnOpen" style="width:100%">Open the vault</button>
+  <div id="vaultOut"></div>
+</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const u = new URLSearchParams(location.search).get('u');
+let claimId = null, token = sessionStorage.getItem('claimToken'), pkg = null;
+const step = n => [1,2,3,4,5,6].forEach(i => $('s' + i).classList.toggle('hide', i !== n));
+const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
+async function call(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { ...(opts.body && !(opts.body instanceof FormData) ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) } });
+  const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Something went wrong'); return d;
+}
+const bubble = (role, text) => { const d = document.createElement('div'); d.className = 'bubble ' + (role === 'user' ? 'me' : 'ai'); d.textContent = text; $('chat').appendChild(d); d.scrollIntoView({ behavior: 'smooth' }); };
+
+if (!u && !token) flash('This page needs the link from your email.');
+$('f1').onsubmit = async e => {
+  e.preventDefault(); flash();
+  try { const d = await call('/api/claim/start', { method: 'POST', body: JSON.stringify({ u, name: $('cName').value, email: $('cEmail').value }) });
+    claimId = d.claimId; $('s2msg').textContent = d.message; step(2); } catch (x) { flash(x.message); }
+};
+$('f2').onsubmit = async e => {
+  e.preventDefault(); flash();
+  try { const d = await call('/api/claim/verify', { method: 'POST', body: JSON.stringify({ claimId, code: $('cCode').value }) });
+    token = d.token; sessionStorage.setItem('claimToken', token); step(3); bubble('assistant', d.message); } catch (x) { flash(x.message); }
+};
+$('f3').onsubmit = async e => {
+  e.preventDefault(); const t = $('cMsg').value.trim(); if (!t) return; $('cMsg').value = ''; bubble('user', t);
+  const btn = e.submitter; btn.disabled = true;
+  try { const d = await call('/api/claim/message', { method: 'POST', body: JSON.stringify({ text: t }) }); bubble('assistant', d.reply);
+    if (d.done) setTimeout(() => step(d.status === 'awaiting_document' ? 4 : 5), 1200); } catch (x) { flash(x.message); }
+  btn.disabled = false;
+};
+// Phone photos are large: resize images in the browser to ~2000px JPEG before upload
+async function shrink(f) {
+  if (!f || !f.type.startsWith('image/') || f.size < 900000) return f;
+  const img = await createImageBitmap(f); const s = Math.min(1, 2000 / Math.max(img.width, img.height));
+  const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+  return new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
+}
+$('f4').onsubmit = async e => {
+  e.preventDefault(); const fd = new FormData(); fd.append('file', await shrink($('cFile').files[0]));
+  e.submitter.disabled = true; e.submitter.textContent = 'Checking document...';
+  try { await call('/api/claim/document', { method: 'POST', body: fd }); step(5); } catch (x) { flash(x.message); e.submitter.disabled = false; e.submitter.textContent = 'Upload'; }
+};
+async function checkStatus() {
+  const d = await call('/api/claim/status');
+  if (d.status === 'released') { pkg = d.package; $('s6msg').textContent = `${pkg.name}'s vault has been released to you.`;
+    $('codeWrap').classList.toggle('hide', pkg.releaseMode === 'standard'); step(6); }
+  else if (d.status === 'approved') { $('s5msg').textContent = `Your request has been approved. As a final safeguard, the account holder has until ${new Date(d.vetoEndsAt).toUTCString()} to respond. If they don't, access will open here.`; step(5); }
+  else if (d.status === 'vetoed') { $('s5msg').textContent = 'The account holder has confirmed they are well, so this request has been closed.'; step(5); }
+  else if (d.status === 'rejected') { $('s5msg').textContent = 'We could not verify this request. Please reply to our email if you believe this is wrong.'; step(5); }
+  else if (d.status === 'awaiting_document') step(4);
+  else if (d.status === 'interview') step(3);
+  else step(5);
+}
+$('btnCheck').onclick = () => checkStatus().catch(x => flash(x.message));
+$('btnOpen').onclick = async () => {
+  flash();
+  try {
+    const K = await SMS.unlockRelease(pkg.serverShare, pkg.wrappedRelease, $('cLegacy').value, pkg.releaseMode);
+    const v = await SMS.decVault(K, pkg.vault); const out = $('vaultOut'); out.innerHTML = '';
+    const add = (title, body) => { const d = document.createElement('div'); d.className = 'item'; if (title) { const b = document.createElement('b'); b.textContent = title; d.appendChild(b); }
+      const p = document.createElement('div'); p.style.whiteSpace = 'pre-wrap'; p.textContent = body; d.appendChild(p); out.appendChild(d); };
+    if (v.letter) add('A letter for you', v.letter);
+    (v.items || []).forEach(it => add(it.title, it.body));
+  } catch (x) { flash('That code did not open the vault. Check it carefully, letter by letter.'); }
+};
+if (token && !u) checkStatus().catch(() => {});
+</script>
+</body>
+</html>

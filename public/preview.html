@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Preview: nominee questions | Save My Secrets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<style>
+.qcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:14px 0}
+.qn{font-family:Fraunces,Georgia,serif;color:var(--gold);font-size:20px}
+.tip{font-size:14px;color:var(--muted);margin:6px 0 0}
+.verdict{font-size:14px;margin-top:6px;font-weight:600}
+.step-head{display:flex;align-items:center;gap:10px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="alpha-bar"><b>Preview:</b> a working mock-up of the nominee questions idea. Nothing you type here is saved.</div>
+<div class="narrow">
+<nav><a class="logo" href="/">Save My <b>Secrets</b></a></nav>
+
+<div class="tabs" id="tabs"><button class="on" data-t="owner">1. You set it up</button><button data-t="nominee">2. Your nominee</button></div>
+
+<!-- OWNER VIEW -->
+<div id="owner">
+  <h2>Questions only your nominee can answer</h2>
+  <p class="muted">Your nominee won't need a card or a code. Instead, when they come to us, we'll ask them a few questions only they would know. They need to get 2 of the 3 right.</p>
+  <div class="notice">Good questions are things that aren't on social media and that family members wouldn't all know. Avoid birthdays, pets' names and your mother's maiden name.</div>
+  <div id="qs"></div>
+  <label class="check"><input type="checkbox" id="lenient" checked> <span>Let the AI accept close answers, for example "Puerto Banús" when I wrote "Marbella".</span></label>
+  <p class="small muted" id="lenientNote"></p>
+  <p></p><button class="accent" id="toNominee" style="width:100%">See what your nominee sees</button>
+</div>
+
+<!-- NOMINEE VIEW -->
+<div id="nominee" class="hide">
+  <h2>Talking to Save My Secrets</h2>
+  <p class="small muted">This is the part of the conversation where your nominee answers your questions. Before this, they've given their name and email and told our assistant what has happened.</p>
+  <div class="chat" id="chat"></div>
+  <form id="ans" class="row"><input id="ansIn" autocomplete="off" placeholder="Type your answer" required><button class="accent">Send</button></form>
+  <div id="after" class="hide">
+    <div class="qcard">
+      <b>What happens next</b>
+      <p class="muted small">1. If you asked for one, the death certificate is uploaded and checked.<br>2. A person at Save My Secrets reviews everything.<br>3. You get a final window, with alerts by email, text and WhatsApp, to say "I'm fine" and stop it.<br>4. Only then is the vault opened for your nominee.</p>
+    </div>
+    <button class="ghost" id="again" style="width:100%">Try again with different answers</button>
+  </div>
+</div>
+<p></p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const defaults = [
+  { q: 'Where did we get married?', a: 'Marbella', alt: '' },
+  { q: 'What did Dad call the old boat?', a: 'Sea Biscuit', alt: 'Seabiscuit' },
+  { q: 'What was the name of our first flat\'s landlord?', a: 'Mrs Okafor', alt: 'Okafor' },
+];
+function renderQs() {
+  $('qs').innerHTML = defaults.map((d, i) => `<div class="qcard"><div class="qn">Question ${i + 1}</div>
+    <label>Question</label><input id="q${i}" value="${d.q.replace(/"/g, '&quot;')}">
+    <label>Answer</label><input id="a${i}" value="${d.a.replace(/"/g, '&quot;')}">
+    <label>Other ways they might say it (optional)</label><input id="alt${i}" value="${d.alt.replace(/"/g, '&quot;')}" placeholder="Separate with commas">
+    </div>`).join('');
+}
+renderQs();
+function lenNote() {
+  $('lenientNote').textContent = $('lenient').checked
+    ? 'Trade-off: to judge "close", the AI has to see your answers, so they are stored with us rather than locked away. Untick for maximum security: then only exact answers, or the alternatives you list, will work.'
+    : 'Maximum security: only exact answers, or the alternatives you list, will open the vault. Capitals, spaces and punctuation are ignored.';
+}
+$('lenient').onchange = lenNote; lenNote();
+
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => go(b.dataset.t));
+function go(t) {
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x.dataset.t === t));
+  $('owner').classList.toggle('hide', t !== 'owner'); $('nominee').classList.toggle('hide', t !== 'nominee');
+  if (t === 'nominee') start();
+  scrollTo(0, 0);
+}
+$('toNominee').onclick = () => go('nominee');
+
+const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+let set = [], idx = 0, results = [];
+function bubble(role, text, cls) {
+  const d = document.createElement('div'); d.className = 'bubble ' + (role === 'me' ? 'me' : 'ai'); d.textContent = text;
+  if (cls) { const v = document.createElement('div'); v.className = 'verdict ' + cls.c; v.textContent = cls.t; d.appendChild(v); }
+  $('chat').appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+function start() {
+  set = [0, 1, 2].map(i => ({ q: $('q' + i).value.trim(), a: $('a' + i).value.trim(), alts: $('alt' + i).value.split(',').map(s => s.trim()).filter(Boolean) })).filter(x => x.q && x.a);
+  idx = 0; results = []; $('chat').innerHTML = ''; $('after').classList.add('hide'); $('ans').classList.remove('hide');
+  bubble('ai', `Thank you. Neil left a few questions that only the right person would know. You need to get ${Math.min(2, set.length)} of ${set.length} right, and it's fine if you're not word-perfect.`);
+  setTimeout(() => bubble('ai', set[0].q), 500);
+}
+$('ans').onsubmit = async e => {
+  e.preventDefault(); const given = $('ansIn').value.trim(); if (!given) return; $('ansIn').value = '';
+  const cur = set[idx]; bubble('me', given);
+  let verdict = 'no', reason = '';
+  if ([cur.a, ...cur.alts].some(x => norm(x) === norm(given))) verdict = 'match';
+  else if ($('lenient').checked) {
+    try {
+      const r = await fetch('/api/preview/judge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: cur.q, expected: cur.a, alternatives: cur.alts, given }) });
+      const d = await r.json(); verdict = d.verdict || 'no'; reason = d.reason || '';
+    } catch { verdict = 'no'; }
+  }
+  results.push(verdict !== 'no');
+  const tag = verdict === 'match' ? { c: 'ok', t: 'Preview note: exact match' } : verdict === 'close' ? { c: 'ok', t: 'Preview note: accepted as close' + (reason ? `: ${reason}` : '') } : { c: 'bad', t: 'Preview note: not accepted' + (reason ? `: ${reason}` : '') };
+  bubble('ai', verdict === 'no' ? 'Thank you.' : 'Thank you, that\'s helpful.', tag);
+  idx++;
+  const need = Math.min(2, set.length), got = results.filter(Boolean).length, left = set.length - idx;
+  if (got >= need || got + left < need || idx >= set.length) {
+    $('ans').classList.add('hide');
+    const pass = got >= need;
+    setTimeout(() => {
+      bubble('ai', pass ? 'Thank you, that\'s everything I need from the questions. We\'ll take you through the remaining checks next.'
+        : 'Thank you. I\'m not able to confirm this from those answers, so we\'ll pass your request to a person at Save My Secrets to look at.',
+        { c: pass ? 'ok' : 'bad', t: `Preview note: ${got} of ${set.length} accepted, ${need} needed: ${pass ? 'passed' : 'not passed'}` });
+      $('after').classList.remove('hide');
+    }, 500);
+  } else setTimeout(() => bubble('ai', set[idx].q), 500);
+};
+$('again').onclick = start;
+</script>
+</body>
+</html>

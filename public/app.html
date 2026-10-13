@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Your vault | Save My Secrets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/crypto.js"></script>
+</head>
+<body>
+<div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
+<div class="narrow">
+<nav><a class="logo" href="/">Save My <b>Secrets</b></a><a href="#" id="logout" class="small hide">Log out</a></nav>
+<p id="flash" class="small"></p>
+
+<!-- AUTH -->
+<div id="vAuth">
+  <div class="tabs"><button class="on" data-t="login">Log in</button><button data-t="signup">Create vault</button></div>
+  <form id="fLogin">
+    <label>Email</label><input id="lEmail" type="email" required autocomplete="username">
+    <label>Master password</label><input id="lPw" type="password" required autocomplete="current-password">
+    <label>Authenticator code</label><input id="lCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits">
+    <p></p><button class="accent" style="width:100%">Unlock</button>
+  </form>
+  <form id="fInvite" class="hide">
+    <p class="muted">Save My Secrets is invite-only during the alpha.</p>
+    <label>Invite code</label><input id="iCode" required autocomplete="off" autocapitalize="characters">
+    <p></p><button class="accent" style="width:100%">Continue</button>
+    <p class="small muted">No code? <a href="/#notify">Join the waiting list</a> and we'll let you know.</p>
+  </form>
+  <form id="fSignup" class="hide">
+    <p class="small ok" id="inviteOk"></p>
+    <label>Your full name</label><input id="sName" required autocomplete="name">
+    <label>Email</label><input id="sEmail" type="email" required autocomplete="email">
+    <label>Mobile (for check-in texts and WhatsApp)</label><input id="sPhone" type="tel" placeholder="+44..." autocomplete="tel">
+    <label>Master password (at least 12 characters)</label><input id="sPw" type="password" minlength="12" required autocomplete="new-password">
+    <label>Confirm master password</label><input id="sPw2" type="password" minlength="12" required autocomplete="new-password">
+    <label class="check"><input type="checkbox" id="sAlpha" required> I understand this is an alpha and I won't store anything mission critical yet.</label>
+    <p class="small muted">We never see this password and can't reset it, so keep it somewhere safe.</p>
+    <button class="accent" style="width:100%">Create my vault</button>
+  </form>
+</div>
+
+<!-- 2FA ENROL -->
+<div id="vEnrol" class="hide">
+  <h2>Set up two-factor</h2>
+  <p class="muted">Scan with Google Authenticator, 1Password, Authy or similar, then enter the 6-digit code.</p>
+  <div id="qr" style="background:#fff;padding:12px;display:inline-block;border-radius:10px"></div>
+  <p class="small muted">Or enter this key: <code id="totpKey"></code></p>
+  <form id="fEnrol"><input id="eCode" inputmode="numeric" placeholder="6-digit code" required><p></p><button class="accent" style="width:100%">Turn on two-factor</button></form>
+</div>
+
+<!-- SEAL (first vault) -->
+<div id="vSeal" class="hide">
+  <h2>Seal your vault</h2>
+  <p class="muted">Your nominee doesn't need anything from you. Just leave a message in your will or a letter telling them to visit savemysecrets.com if anything happens to you.</p>
+  <details><summary>Optional extra security</summary>
+  <label class="check"><input type="checkbox" id="extraCode"> <span>Also require a printed code that I'll give my nominee. Even a verified release can't open the vault without it. If the code is lost, so is the vault.</span></label>
+  </details>
+  <div class="notice">Alpha: test with something non-critical. Keep your real records where they are for now.</div>
+  <label>First secret: title</label><input id="sealTitle" placeholder="e.g. Where the house deeds are">
+  <label>Details</label><textarea id="sealBody" placeholder="Encrypted on this device before it's sent."></textarea>
+  <p></p><button class="accent" id="btnSeal" style="width:100%">Encrypt and seal</button>
+</div>
+
+<!-- LEGACY CODE (shown once) -->
+<div id="vCode" class="hide">
+  <h2>Your legacy code</h2>
+  <p>Write this down or print it and give it to your nominee, or put it with your will. <b>We do not keep a copy and cannot show it again.</b></p>
+  <div class="code" id="codeBox"></div>
+  <p class="small muted">Your nominee needs this code plus our verified release to open your vault. Neither works alone.</p>
+  <div class="row noprint"><button class="ghost" onclick="print()">Print</button></div>
+  <label class="check"><input type="checkbox" id="codeOk"> I've stored my legacy code safely</label>
+  <button class="accent" id="btnCodeDone" disabled style="width:100%">Continue</button>
+</div>
+
+<!-- DASHBOARD -->
+<div id="vDash" class="hide">
+  <div class="card" style="margin-bottom:14px">
+    <div id="statusLine"></div>
+    <p></p><button class="accent" id="btnFine" style="width:100%">I'm fine, check in now</button>
+  </div>
+  <div class="tabs" id="dashTabs"><button class="on" data-t="vault">Vault</button><button data-t="noms">Nominees</button><button data-t="rules">Rules</button></div>
+
+  <div id="tVault">
+    <label>Letter to your nominees (optional)</label><textarea id="letter" placeholder="Anything you want them to read first."></textarea>
+    <div id="items"></div>
+    <div class="notice">Alpha: please don't store anything mission critical yet.</div>
+    <details><summary>Add a secret</summary>
+      <label>Type</label><select id="iType"><option>Password / login</option><option>Account / bank</option><option>Document location</option><option>Instructions</option><option>Wallet / seed phrase</option><option>Note</option></select>
+      <label>Title</label><input id="iTitle">
+      <label>Details</label><textarea id="iBody"></textarea><p></p>
+      <button id="btnAdd" class="ghost" style="width:100%">Add to vault</button>
+    </details><p></p>
+    <button class="accent" id="btnSave" style="width:100%">Encrypt and save vault</button>
+  </div>
+
+  <div id="tNoms" class="hide">
+    <div id="nomList"></div>
+    <details open><summary>Add a nominee</summary>
+      <label>Full name</label><input id="nName">
+      <label>Email</label><input id="nEmail" type="email">
+      <label>Mobile</label><input id="nPhone" type="tel" placeholder="+44...">
+      <label>Postal address</label><textarea id="nAddr" style="min-height:70px"></textarea>
+      <label>Relationship to you</label><input id="nRel" placeholder="e.g. wife, brother, solicitor">
+      <label class="check"><input type="checkbox" id="nEarly"> Tell them now that I've named them (otherwise they hear nothing until it matters)</label>
+      <button id="btnNom" class="ghost" style="width:100%">Add nominee</button>
+    </details>
+  </div>
+
+  <div id="tRules" class="hide">
+    <label>Check in with me every</label><select id="rDays"><option value="30">month</option><option value="60">2 months</option><option value="90">3 months</option><option value="180">6 months</option><option value="365">year</option></select>
+    <label>If I don't respond, keep trying me for</label><select id="rWeeks"><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="6">6 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select>
+    <label>Before release, my nominee must</label><select id="rProof"><option value="death_certificate">provide a death certificate (checked)</option><option value="nominee_confirm">pass the interview and confirm what happened</option><option value="none">pass the interview only</option></select>
+    <label>Final window for me to stop a release</label><select id="rVeto"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
+    <label>My mobile</label><input id="rPhone" type="tel">
+    <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
+  </div>
+
+
+</div>
+</div>
+
+<script>
+let inviteCode = null, token = null, ownerKey = null, K = null, me = null, vault = { letter: '', items: [] }, pendingSeal = null;
+const $ = id => document.getElementById(id);
+const show = v => ['vAuth','vEnrol','vSeal','vCode','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
+const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
+async function call(path, opts = {}) {
+  const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Something went wrong');
+  return d;
+}
+const post = (p, b) => call(p, { method: 'POST', body: JSON.stringify(b) });
+const busy = (btn, on, label) => { btn.disabled = on; if (label) btn.textContent = label; };
+if (new URLSearchParams(location.search).get('checkedin')) flash('Thanks, you\'re checked in. See you next time.', true);
+
+document.querySelectorAll('#vAuth .tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#vAuth .tabs button').forEach(x => x.classList.toggle('on', x === b));
+  $('fLogin').classList.toggle('hide', b.dataset.t !== 'login');
+  $('fInvite').classList.toggle('hide', b.dataset.t !== 'signup' || !!inviteCode); $('fSignup').classList.toggle('hide', b.dataset.t !== 'signup' || !inviteCode);
+});
+document.querySelectorAll('#dashTabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('#dashTabs button').forEach(x => x.classList.toggle('on', x === b));
+  ['vault','noms','rules'].forEach(t => $('t' + t[0].toUpperCase() + t.slice(1)).classList.toggle('hide', t !== b.dataset.t));
+});
+
+function showEnrol(secret, otpauth) {
+  $('qr').innerHTML = ''; if (window.QRCode) new QRCode($('qr'), { text: otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`, width: 180, height: 180 });
+  $('totpKey').textContent = secret.match(/.{1,4}/g).join(' '); show('vEnrol');
+}
+
+$('fInvite').onsubmit = async e => {
+  e.preventDefault(); flash();
+  try { await post('/api/invite/check', { code: $('iCode').value }); inviteCode = $('iCode').value.trim();
+    $('inviteOk').textContent = 'Invite accepted. Create your vault below.'; $('fInvite').classList.add('hide'); $('fSignup').classList.remove('hide');
+  } catch (x) { flash(x.message); }
+};
+// ?invite=CODE (from the QR card) opens straight on sign-up with the code filled in
+{ const qs = new URLSearchParams(location.search), q = qs.get('invite'); if (q) $('iCode').value = q; if (q || qs.get('signup')) document.querySelector('#vAuth .tabs [data-t=signup]').click(); }
+$('fSignup').onsubmit = async e => {
+  e.preventDefault(); const btn = e.submitter; flash();
+  if ($('sPw').value !== $('sPw2').value) return flash('Passwords do not match');
+  busy(btn, true, 'Deriving keys...');
+  try {
+    const kdfSalt = SMS.b64(SMS.rand(16));
+    const k = await SMS.deriveFromPassword($('sPw').value, kdfSalt); ownerKey = k.ownerKey;
+    const d = await post('/api/register', { name: $('sName').value, email: $('sEmail').value, phone: $('sPhone').value, authKey: k.authKey, kdfSalt, inviteCode });
+    token = d.token; showEnrol(d.totpSecret, d.otpauth);
+  } catch (x) { flash(x.message); } busy(btn, false, 'Create my vault');
+};
+$('fLogin').onsubmit = async e => {
+  e.preventDefault(); const btn = e.submitter; flash(); busy(btn, true, 'Unlocking...');
+  try {
+    const { kdfSalt } = await post('/api/prelogin', { email: $('lEmail').value });
+    const k = await SMS.deriveFromPassword($('lPw').value, kdfSalt); ownerKey = k.ownerKey;
+    const d = await post('/api/login', { email: $('lEmail').value, authKey: k.authKey, code: $('lCode').value });
+    token = d.token;
+    if (d.needsEnrol) showEnrol(d.totpSecret); else await loadDash();
+  } catch (x) { flash(x.message); } busy(btn, false, 'Unlock');
+};
+$('fEnrol').onsubmit = async e => {
+  e.preventDefault(); flash();
+  try { const d = await post('/api/2fa/enable', { code: $('eCode').value }); token = d.token; await loadDash(); } catch (x) { flash(x.message); }
+};
+
+async function loadDash() {
+  me = await call('/api/me');
+  $('logout').classList.remove('hide');
+  if (!me.wrappedOwner) return show('vSeal');
+  K = await SMS.unlockOwner(ownerKey, me.wrappedOwner);
+  vault = await SMS.decVault(K, me.vault);
+  renderAll(); show('vDash');
+}
+
+$('btnSeal').onclick = async () => {
+  const mode = $('extraCode').checked ? 'sovereign' : 'standard';
+  const items = $('sealTitle').value ? [{ type: 'Note', title: $('sealTitle').value, body: $('sealBody').value }] : [];
+  vault = { letter: '', items };
+  const v = await SMS.createVault(ownerKey, vault, mode);
+  await post('/api/me/vault', v.upload);
+  K = v.K; pendingSeal = v;
+  if (v.legacyCode) { const g = v.legacyCode.split('-'); $('codeBox').innerHTML = g.slice(0, 4).join('-') + '<br>' + g.slice(4).join('-'); show('vCode'); }
+  else await loadDash();
+};
+$('codeOk').onchange = () => $('btnCodeDone').disabled = !$('codeOk').checked;
+$('btnCodeDone').onclick = () => { pendingSeal = null; $('codeBox').textContent = ''; loadDash(); };
+
+function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+function renderAll() {
+  const next = me.nextCheckin ? new Date(me.nextCheckin).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'not set';
+  const stateText = { active: `All good. Next check-in: <b>${next}</b>.`, overdue: '<b class="bad">You missed a check-in.</b> Tap below so we know you\'re fine.',
+    nominees_contacted: '<b class="bad">We\'ve contacted your nominees</b> because we couldn\'t reach you. Tap below now.',
+    claim_review: '<b class="bad">A nominee has asked for release and is being verified.</b> Tap below to stop it.',
+    veto_window: '<b class="bad">Your vault is about to be released.</b> Tap below to stop it.', released: 'This vault has been released.' }[me.state] || me.state;
+  $('statusLine').innerHTML = `${stateText}<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'No card or code needed'}</span>`;
+  $('letter').value = vault.letter || '';
+  $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b><span class="small muted">${esc(it.type)}</span>
+    <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
+  $('nomList').innerHTML = me.nominees.map(n => `<div class="item"><b>${esc(n.name)}</b><span class="small muted">${esc(n.relationship)} · ${esc(n.email)} · ${esc(n.phone)}</span>
+    <p></p><button class="ghost small" onclick="delNom('${n.id}')">Remove</button></div>`).join('') || '<p class="muted">No nominees yet. Add at least one.</p>';
+  $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks; $('rProof').value = me.policy.proof_required;
+  $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
+}
+window.delItem = i => { vault.items.splice(i, 1); renderAll(); flash('Removed. Save the vault to make it permanent.'); };
+window.delNom = async id => { await call('/api/me/nominees/' + id, { method: 'DELETE' }); me = await call('/api/me'); renderAll(); };
+$('btnAdd').onclick = () => {
+  if (!$('iTitle').value) return flash('Give it a title');
+  vault.items.push({ type: $('iType').value, title: $('iTitle').value, body: $('iBody').value });
+  $('iTitle').value = $('iBody').value = ''; renderAll(); flash('Added. Save the vault to make it permanent.');
+};
+$('btnSave').onclick = async () => {
+  vault.letter = $('letter').value;
+  await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
+  flash('Vault encrypted and saved.', true);
+};
+$('btnNom').onclick = async () => {
+  try {
+    await post('/api/me/nominees', { name: $('nName').value, email: $('nEmail').value, phone: $('nPhone').value, address: $('nAddr').value, relationship: $('nRel').value, notify_early: $('nEarly').checked });
+    ['nName','nEmail','nPhone','nAddr','nRel'].forEach(x => $(x).value = ''); me = await call('/api/me'); renderAll(); flash('Nominee added.', true);
+  } catch (x) { flash(x.message); }
+};
+$('btnRules').onclick = async () => {
+  await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, proof_required: $('rProof').value, veto_days: $('rVeto').value, phone: $('rPhone').value });
+  me = await call('/api/me'); renderAll(); flash('Rules saved.', true);
+};
+$('btnFine').onclick = async () => { await post('/api/me/checkin', {}); me = await call('/api/me'); renderAll(); flash('Checked in. Thank you.', true); };
+
+
+$('logout').onclick = e => { e.preventDefault(); location.reload(); };
+</script>
+</body>
+</html>

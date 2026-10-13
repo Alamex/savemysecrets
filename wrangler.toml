@@ -1,0 +1,18 @@
+# Local development config for the Worker build. Production runs as a Cloudflare Pages project
+# (public/ + functions/), with bindings and secrets set in the Cloudflare dashboard/API.
+name = "savemysecrets"
+main = "src/worker.js"
+compatibility_date = "2025-09-01"
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "savemysecrets"
+database_id = "LOCAL"
+
+[vars]
+CLAUDE_MODEL = "claude-sonnet-4-5"
+# Secrets (never committed): APP_SECRET, ADMIN_TOKEN, ANTHROPIC_API_KEY, RESEND_API_KEY, TWILIO_*
