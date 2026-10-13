@@ -61,4 +61,4 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:13px}
 .steps h3{margin:12px 0 6px}
 .steps p{margin:0}
 @media (min-width:900px){.grid{grid-template-columns:repeat(3,1fr)}}
-.soon{display:inline-block;vertical-align:middle;font:600 11px/1 Inter,system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;color:var(--gold);border:1px solid var(--gold);border-radius:99px;padding:4px 8px;margin-left:6px}
+.soon{font-family:Inter,system-ui,sans-serif;font-weight:400;font-size:.7em;color:var(--muted);white-space:nowrap}
