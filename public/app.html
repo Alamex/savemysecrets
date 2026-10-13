@@ -5,7 +5,7 @@
 <title>Your vault | Save My Secrets</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css?v=20261013b">
+<link rel="stylesheet" href="/style.css?v=20261014a">
 <script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
@@ -93,7 +93,7 @@
     <div id="statusLine"></div>
     <p></p><button class="accent" id="btnFine" style="width:100%">I'm fine, check in now</button>
   </div>
-  <div class="tabs" id="dashTabs"><button class="on" data-t="vault">Vault</button><button data-t="noms">Nominees</button><button data-t="rules">Rules</button></div>
+  <div class="tabs" id="dashTabs"><button class="on" data-t="vault">Vault</button><button data-t="noms">Nominees</button><button data-t="rules">Rules</button><button data-t="try">Rehearse</button></div>
 
   <div id="tVault">
     <label>Letter to your nominees (optional)</label><textarea id="letter" placeholder="Anything you want them to read first."></textarea>
@@ -130,6 +130,29 @@
     <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
   </div>
 
+  <div id="tTry" class="hide">
+    <h3>See what your nominees will go through</h3>
+    <p class="muted">You play one of your nominees, and our real verification assistant interviews you, exactly as it would if something happened to you. Nothing is saved, nobody is contacted and your check-ins aren't affected.</p>
+    <div id="tryNone" class="notice hide">Add a nominee first, then come back here.</div>
+    <div id="trySetup">
+      <label>I'll play</label><select id="tryWho"></select>
+      <p></p><button class="accent" id="btnTry" style="width:100%">Start the rehearsal</button>
+    </div>
+    <div id="tryRun" class="hide">
+      <div class="chat" id="tryChat"></div>
+      <form id="tryForm" class="row"><textarea id="tryMsg" style="min-height:70px" required placeholder="Answer as your nominee would"></textarea><button class="accent">Send</button></form>
+      <div id="tryResult" class="hide"></div>
+      <p></p><button class="ghost" id="btnTryAgain" style="width:100%">Start again</button>
+    </div>
+  </div>
+
+  <details class="small" style="margin-top:28px"><summary>Send us feedback</summary>
+    <p class="muted">Something broken, confusing or missing? Tell us. We read every message.</p>
+    <textarea id="fbText" placeholder="What happened, or what would make this better?"></textarea><p></p>
+    <button class="ghost" id="btnFb" style="width:100%">Send feedback</button>
+    <p id="fbMsg" class="small"></p>
+  </details>
+
 
 </div>
 </div>
@@ -156,8 +179,47 @@ document.querySelectorAll('#vAuth .tabs button').forEach(b => b.onclick = () => 
 });
 document.querySelectorAll('#dashTabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#dashTabs button').forEach(x => x.classList.toggle('on', x === b));
-  ['vault','noms','rules'].forEach(t => $('t' + t[0].toUpperCase() + t.slice(1)).classList.toggle('hide', t !== b.dataset.t));
+  ['vault','noms','rules','try'].forEach(t => $('t' + t[0].toUpperCase() + t.slice(1)).classList.toggle('hide', t !== b.dataset.t));
+  if (b.dataset.t === 'try') setupTry();
 });
+
+// ---- rehearsal: the owner plays a nominee against the real interviewer ----
+let tryMsgs = [];
+const tryBubble = (role, text) => { const d = document.createElement('div'); d.className = 'bubble ' + (role === 'user' ? 'me' : 'ai'); d.textContent = text; $('tryChat').appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'end' }); };
+function setupTry() {
+  const has = me && me.nominees.length;
+  $('tryNone').classList.toggle('hide', !!has); $('trySetup').classList.toggle('hide', !has || !$('tryRun').classList.contains('hide'));
+  if (has) $('tryWho').innerHTML = me.nominees.map(n => `<option value="${esc(n.id)}">${esc(n.name)}${n.relationship ? ' (' + esc(n.relationship) + ')' : ''}</option>`).join('');
+}
+async function tryStep(btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const d = await post('/api/me/rehearse', { nomineeId: $('tryWho').value, messages: tryMsgs });
+    tryMsgs.push({ role: 'assistant', content: d.reply }); tryBubble('assistant', d.reply);
+    if (d.done) { $('tryForm').classList.add('hide'); showTryResult(d); }
+  } catch (x) { flash(x.message); }
+  if (btn) btn.disabled = false;
+}
+function showTryResult(d) {
+  const a = d.assessment || {}, risk = { low: 'Low risk', medium: 'Medium risk', high: 'High risk' }[a.risk] || 'Not rated';
+  const proof = { death_certificate: 'They would upload the death certificate, which is checked automatically.', nominee_confirm: 'They would confirm what happened.', none: 'Your rules ask for nothing more, so this step is skipped.' }[d.proof] || '';
+  $('tryResult').innerHTML = `<div class="card"><h3>How our checker rated this</h3><p><b>${esc(risk)}</b>${a.summary ? '<br>' + esc(a.summary) : ''}</p>
+    ${(a.red_flags || []).length ? '<p class="small bad">Red flags: ' + a.red_flags.map(esc).join('; ') + '</p>' : ''}
+    <h3>In a real request, what happens next</h3>
+    <p class="small">1. The moment they started, you'd get an urgent email, text and WhatsApp. One tap from you closes the request.<br>
+    2. ${esc(proof)}<br>3. One final check that you don't respond: ${d.vetoDays} days of alarms to you.<br>4. Only then would they open your vault, on their own device.</p></div>`;
+  $('tryResult').classList.remove('hide');
+}
+$('btnTry').onclick = async () => { tryMsgs = []; $('tryChat').innerHTML = ''; $('tryResult').classList.add('hide'); $('tryForm').classList.remove('hide');
+  $('trySetup').classList.add('hide'); $('tryRun').classList.remove('hide'); await tryStep($('btnTry')); };
+$('tryForm').onsubmit = async e => { e.preventDefault(); const t = $('tryMsg').value.trim(); if (!t) return; $('tryMsg').value = '';
+  tryMsgs.push({ role: 'user', content: t }); tryBubble('user', t); await tryStep(e.submitter); };
+$('btnTryAgain').onclick = () => { $('tryRun').classList.add('hide'); tryMsgs = []; setupTry(); };
+$('btnFb').onclick = async () => {
+  const m = $('fbMsg'), t = $('fbText').value.trim(); if (!t) { m.textContent = 'Write something first'; m.className = 'small bad'; return; }
+  try { await post('/api/feedback', { text: t, page: location.pathname + ' ' + (document.querySelector('#dashTabs .on')?.dataset.t || '') }); $('fbText').value = ''; m.textContent = 'Thank you. Your feedback has been sent.'; m.className = 'small ok'; }
+  catch (x) { m.textContent = x.message; m.className = 'small bad'; }
+};
 
 function showEnrol(secret, otpauth) {
   $('qr').innerHTML = ''; if (window.QRCode) new QRCode($('qr'), { text: otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`, width: 180, height: 180 });

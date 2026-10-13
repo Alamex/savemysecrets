@@ -60,9 +60,10 @@ CREATE TABLE IF NOT EXISTS events (
 -- signups already exists in production (holding page); created here for local dev only
 CREATE TABLE IF NOT EXISTS signups (
   id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT NOT NULL, source TEXT, ip TEXT, ua TEXT,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')), invited_at INTEGER, invite_code TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_signups_email ON signups(email);
+-- added Oct 2026: ALTER TABLE signups ADD COLUMN invited_at INTEGER; ALTER TABLE signups ADD COLUMN invite_code TEXT;
 CREATE TABLE IF NOT EXISTS invites (
   code TEXT PRIMARY KEY, label TEXT, max_uses INTEGER DEFAULT 100, uses INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1, expires_at INTEGER, created_at INTEGER
@@ -77,3 +78,4 @@ CREATE INDEX IF NOT EXISTS idx_users_state ON users(state, next_checkin_at);
 CREATE INDEX IF NOT EXISTS idx_claims_user ON claims(user_id);
 CREATE INDEX IF NOT EXISTS idx_claimants_token ON claimants(token);
 CREATE INDEX IF NOT EXISTS idx_claims_token ON claims(token);
+CREATE TABLE IF NOT EXISTS feedback ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, email TEXT, page TEXT, text TEXT NOT NULL, created_at INTEGER );

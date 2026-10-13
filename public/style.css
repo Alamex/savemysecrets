@@ -37,7 +37,8 @@ section{padding:48px 0;border-top:1px solid var(--line)}
 .item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}
 .item b{display:block;margin-bottom:4px}
 .tabs{display:flex;gap:6px;overflow-x:auto;margin:10px 0 18px}
-.tabs button{background:transparent;color:var(--muted);border:1px solid var(--line);padding:9px 14px;white-space:nowrap}
+.tabs button{background:transparent;color:var(--muted);border:1px solid var(--line);padding:9px 14px;white-space:nowrap;flex:1 1 auto}
+@media (max-width:420px){.tabs{gap:4px}.tabs button{padding:9px 6px;font-size:14px}}
 .tabs button.on{background:var(--ink);color:var(--bg)}
 .chat{display:flex;flex-direction:column;gap:10px;margin:16px 0}
 .bubble{max-width:88%;padding:12px 14px;border-radius:14px;white-space:pre-wrap}

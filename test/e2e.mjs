@@ -3,7 +3,7 @@ const B = process.env.B || 'http://localhost:8787', ADM = process.env.ADM || 'ad
 const ctx = { crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob, Uint8Array, JSON, document: undefined };
 vm.createContext(ctx); vm.runInContext(fs.readFileSync(new URL('../public/crypto.js', import.meta.url), 'utf8') + ';this.SMS=SMS;', ctx);
 const { SMS } = ctx;
-let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
+let fails = 0, r0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 async function call(p, { method = 'GET', body, token, raw } = {}) {
   const r = await fetch(B + p, { method, redirect: 'manual', headers: { ...(body && !raw ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: raw || (body ? JSON.stringify(body) : undefined) });
   const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { s: r.status, d, h: r.headers };
@@ -23,7 +23,9 @@ async function claimant(name, mail) {
 }
 const email = `neil+${Date.now()}@example.com`, pw = 'correct horse battery staple';
 
-ok((await call('/api/waitlist', { method: 'POST', body: { email: 'w' + Date.now() + '@x.com', source: 'conf' } })).s === 200, 'waitlist');
+const wlEmail = 'w' + Date.now() + '@example.com';
+ok((await call('/api/waitlist', { method: 'POST', body: { email: wlEmail, source: 'conf' } })).s === 200, 'waitlist');
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes(wlEmail) && e.detail.includes('waiting list')), 'waitlist confirmation email sent');
 ok((await call('/api/waitlist', { method: 'POST', body: { email: 'nope' } })).s === 400, 'waitlist rejects bad email');
 ok((await call('/api/subscribe', { method: 'POST', body: { email: 's' + Date.now() + '@x.com', source: 'holding-page' } })).s === 200, 'old /api/subscribe still works');
 ok([200, 302].includes((await call('/no-such-page')).s), 'unknown URL lands on home');
@@ -31,6 +33,12 @@ for (const pg of ['/privacy', '/terms', '/claim', '/preview']) ok((await call(pg
 ok((await call('/')).h.get('content-security-policy')?.includes("frame-ancestors 'none'"), 'CSP header set');
 
 ok((await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: 'test-conf', label: 'test', max_uses: 1000 } })).s === 200, 'invite created');
+r0 = await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { code: 'TESTCONF', emails: [wlEmail] } });
+ok(r0.s === 200 && r0.d.sent === 1, 'admin emails an invite to a waitlist signup');
+ok((await call('/api/admin/waitlist', { token: ADM })).d.find(w => w.email === wlEmail)?.invite_code === 'TESTCONF', 'waitlist row marked invited');
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(wlEmail) && e.detail.includes('/app?invite=TESTCONF')), 'invite email carries the sign-up link');
+ok((await call('/api/feedback', { method: 'POST', body: { text: 'The rehearse tab is great', page: '/app' } })).s === 200, 'feedback accepted');
+ok((await call('/api/admin/feedback', { token: ADM })).d.some(f => f.text === 'The rehearse tab is great'), 'feedback visible in admin');
 await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: 'ONEUSE' + Date.now(), max_uses: 1 } });
 ok((await call('/api/invite/check', { method: 'POST', body: { code: 'nope' } })).s === 400, 'bad invite rejected');
 ok((await call('/api/invite/check', { method: 'POST', body: { code: 'test conf' } })).s === 200, 'invite check normalises spaces/case');
@@ -52,12 +60,22 @@ const contents = { letter: 'Dear family, love you.', items: [{ type: 'Seed phras
 const v = await SMS.createVault(k.ownerKey, contents, 'sovereign');
 ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){7}$/.test(v.legacyCode), 'legacy code format ' + v.legacyCode);
 ok((await call('/api/me/vault', { method: 'POST', token: tok, body: v.upload })).s === 200, 'vault sealed');
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(email) && e.detail.includes('Your vault is set up')), 'welcome email after sealing');
 // server must not be able to decrypt with S alone
 let serverAlone = true; try { await SMS.unlockRelease(v.upload.serverShare, v.upload.wrappedRelease, SMS.codeEncode(new Uint8Array(20)), 'sovereign'); } catch { serverAlone = false; }
 ok(!serverAlone, 'server share alone cannot open vault');
 
 ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nom Inee', email: 'nominee@example.com', phone: '+447700900000', relationship: 'wife' } })).s === 200, 'nominee added');
 ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, grace_weeks: 6, proof_required: 'death_certificate', veto_days: 7 } })).s === 200, 'policy saved');
+// Rehearsal: owner plays their nominee; nothing stored, nobody alerted, state unchanged
+const evBefore = (await call('/api/admin/events', { token: ADM })).d[0].id;
+let rh = await call('/api/me/rehearse', { method: 'POST', token: tok, body: { messages: [] } }); ok(rh.s === 200 && rh.d.reply.includes('what has happened'), 'rehearsal opens with the real first question');
+const rmsgs = [];
+for (const t of ['I am his wife, he died last week.', 'At home in Dubai on 6 October 2026.', 'His brother and our solicitor know.', 'I have the death certificate.', 'Nothing else.', 'Yes.', 'Thank you.', 'Ok.', 'Fine.', 'Done.', 'Yes.', 'Ok.']) {
+  rmsgs.push({ role: 'user', content: t }); rh = await call('/api/me/rehearse', { method: 'POST', token: tok, body: { messages: rmsgs } }); rmsgs.push({ role: 'assistant', content: rh.d.reply }); if (rh.d.done) break;
+}
+ok(rh.d.done && rh.d.assessment, 'rehearsal ends with an assessment');
+ok((await call('/api/admin/events', { token: ADM })).d[0].id === evBefore && (await call('/api/admin/claims', { token: ADM })).d.every(c => c.owner_email !== email), 'rehearsal stores nothing and alerts nobody');
 
 // login
 const pre = await call('/api/prelogin', { method: 'POST', body: { email } }); ok(pre.d.kdfSalt === kdfSalt, 'prelogin salt');
@@ -139,6 +157,10 @@ let wrongCodeOpens = true; try { await SMS.unlockRelease(pkg.serverShare, pkg.wr
 ok(!wrongCodeOpens, 'wrong legacy code fails');
 const Kn = await SMS.unlockRelease(pkg.serverShare, pkg.wrappedRelease, v.legacyCode.toLowerCase().replace(/-/g, ' '), pkg.releaseMode);
 ok((await SMS.decVault(Kn, pkg.vault)).items[0].title === 'Cold wallet', 'nominee opens vault with legacy code (lower case, spaces)');
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes('nominee@example.com') && e.detail.includes('ready for you')), 'nominee emailed when the vault is released');
+const nt2 = await claimant('Nom Inee', 'nominee@example.com');
+r = await call('/api/claim/find', { method: 'POST', token: nt2, body: { ownerEmail: email } });
+ok(r.s === 200 && r.d.status === 'released' && (await call('/api/claim/status', { token: r.d.token })).d.package, 'nominee can come back on a new device after release');
 
 // Scenario 2: owner vetoes by email link during veto window
 const email2 = `veto+${Date.now()}@example.com`; const k2 = await SMS.deriveFromPassword(pw, kdfSalt);

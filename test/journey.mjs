@@ -9,7 +9,7 @@ let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); 
 const inv = 'JOURNEY' + Date.now();
 await fetch(B + '/api/admin/invites', { method: 'POST', headers: { authorization: 'Bearer ' + ADM, 'content-type': 'application/json' }, body: JSON.stringify({ code: inv, max_uses: 1 }) });
 const browser = await chromium.launch(); const ctx = await browser.newContext({ ...devices['iPhone 13'] });
-const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
+const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('response', r => { if (r.status() === 401 && !r.url().includes('/api/login')) console.log('   401 from', r.request().method(), r.url()); });
 const shot = n => page.screenshot({ path: `${OUT}/j-${n}.png`, fullPage: true });
 const email = `qa+journey${Date.now()}@example.com`, pw = 'a long and memorable passphrase';
 // 1. Sign up from the homepage button
@@ -34,6 +34,14 @@ await page.click('[data-t=noms]'); await page.fill('#nName', 'Sam Nominee'); awa
 await page.waitForSelector('#nomList .item'); ok((await page.textContent('#nomList')).includes('Sam Nominee'), 'nominee added');
 await page.fill('#nName', 'Kim Nominee'); await page.fill('#nEmail', 'kim@example.com'); await page.click('#btnNom'); await page.waitForTimeout(1500);
 ok((await page.$$('#nomList .item')).length === 2, 'second nominee added');
+// Rehearsal: play a nominee against the interviewer
+await page.click('[data-t=try]'); await page.selectOption('#tryWho', { label: 'Sam Nominee (brother)' }); await page.click('#btnTry');
+await page.waitForSelector('#tryChat .bubble'); ok((await page.textContent('#tryChat')).includes('what has happened'), 'rehearsal starts with the first question');
+const answers = ['Test died of a heart attack at home on 6 October 2026. I am his brother Sam.', 'It was at home in Dubai, about 7am. The ambulance took him to Mediclinic.', 'His wife and our solicitor Sarah Jones know.', 'I have the certificate from the Dubai Health Authority.', 'He was 52, born March 1974.', 'Nothing else to add.', 'Yes.', 'Yes.', 'Ok.', 'Ok.', 'Ok.', 'Ok.'];
+for (const a of answers) { if (await page.isVisible('#tryResult:not(.hide)')) break; const n = (await page.$$('#tryChat .bubble')).length; await page.fill('#tryMsg', a); await page.click('#tryForm button');
+  for (let w = 0; w < 120 && (await page.$$('#tryChat .bubble')).length < n + 2; w++) await page.waitForTimeout(500); }
+await page.waitForSelector('#tryResult:not(.hide)', { timeout: 60000 }); ok((await page.textContent('#tryResult')).includes('what happens next'), 'rehearsal ends with the rating and next steps'); await shot('2b-rehearse');
+await page.click('summary:has-text("Send us feedback")'); await page.fill('#fbText', 'Journey test feedback'); await page.click('#btnFb'); await page.waitForSelector('#fbMsg.ok'); ok(true, 'feedback sent from the app');
 await page.click('[data-t=rules]'); await page.selectOption('#rDays', '180'); await page.selectOption('#rWeeks', '8'); await page.selectOption('#rVeto', '14'); await page.click('#btnRules'); await page.waitForTimeout(1500); await shot('3-rules');
 const due = new Date(Date.now() + 180 * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 ok((await page.textContent('#statusLine')).includes(due), 'next check-in moves to match new frequency (' + due + ')');

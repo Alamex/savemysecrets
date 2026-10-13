@@ -5,14 +5,16 @@
 <title>Review | Save My Secrets</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css?v=20261013b">
+<link rel="stylesheet" href="/style.css?v=20261014a">
+<script src="/qrcode.min.js"></script>
+<style>#out table{display:block;overflow-x:auto;max-width:100%}#out td,#out th{padding:6px 8px;vertical-align:top}#out pre{white-space:pre-wrap;word-break:break-word;max-width:60ch}</style>
 </head>
 <body>
 <div class="wrap">
 <nav><a class="logo" href="/">Save My <b>Secrets</b> · review</a></nav>
 <div class="row" style="max-width:520px"><input id="tok" type="password" placeholder="Admin token"><button id="go">Load</button></div>
 <p id="flash" class="small"></p>
-<div class="tabs"><button class="on" data-t="claims">Claims</button><button data-t="events">Events</button><button data-t="invites">Invites</button><button data-t="waitlist">Waitlist</button></div>
+<div class="tabs"><button class="on" data-t="claims">Claims</button><button data-t="events">Events</button><button data-t="invites">Invites</button><button data-t="waitlist">Waitlist</button><button data-t="feedback">Feedback</button></div>
 <div id="out"></div>
 </div>
 <script>
@@ -53,15 +55,32 @@ async function load() {
         <label>Expires after (days, blank = never)</label><input id="invExp" type="number"><p></p>
         <button class="accent" onclick="mkInvite()">Create</button></div><p></p>
         <table><tr><th>Code</th><th>Label</th><th>Used</th><th>Expires</th><th>Status</th><th>Share link</th></tr>` + rows.map(i => `<tr><td><b>${esc(i.code)}</b></td><td>${esc(i.label)}</td><td>${i.uses} / ${i.max_uses}</td><td>${i.expires_at ? new Date(i.expires_at).toISOString().slice(0, 10) : 'never'}</td>
-        <td><button class="ghost small" onclick="togInvite('${esc(i.code)}')">${i.active ? 'Active: disable' : 'Disabled: enable'}</button></td><td class="small">${location.origin}/app?invite=${esc(i.code)}</td></tr>`).join('') + '</table>';
+        <td><button class="ghost small" onclick="togInvite('${esc(i.code)}')">${i.active ? 'Active: disable' : 'Disabled: enable'}</button></td><td class="small">${location.origin}/app?invite=${esc(i.code)}<br><a href="#" onclick="qr('${esc(i.code)}');return false">QR code for printing</a></td></tr>`).join('') + '</table><div id="qrBox" class="card hide" style="max-width:360px;margin-top:16px;text-align:center"></div>';
+    } else if (tab === 'waitlist') {
+      const [rows, invs] = await Promise.all([call('/api/admin/waitlist'), call('/api/admin/invites')]);
+      const active = invs.filter(i => i.active && i.uses < i.max_uses);
+      $('out').innerHTML = `<p>${rows.length} on the waitlist · ${rows.filter(w => w.invited_at).length} invited · ${rows.filter(w => w.joined).length} joined</p>
+        <div class="row" style="max-width:640px"><select id="wlCode">${active.map(i => `<option value="${esc(i.code)}">${esc(i.code)}${i.label ? ' (' + esc(i.label) + ')' : ''}</option>`).join('')}</select>
+        <button class="accent" onclick="inviteSel()">Email invite to ticked</button></div><p class="small muted">The invite email contains a link that fills in the code.</p>
+        <table><tr><th><input type="checkbox" onclick="document.querySelectorAll('.wlPick').forEach(x => x.checked = this.checked)"></th><th>Email</th><th>Source</th><th>Signed up</th><th>Invited</th><th>Joined</th></tr>` + rows.map(w => `<tr><td><input type="checkbox" class="wlPick" value="${esc(w.email)}"></td><td>${esc(w.email)}</td><td>${esc(w.source)}</td><td>${esc(String(w.created_at).slice(0, 10))}</td><td>${w.invited_at ? new Date(w.invited_at).toISOString().slice(0, 10) + ' (' + esc(w.invite_code) + ')' : ''}</td><td>${w.joined ? 'yes' : ''}</td></tr>`).join('') + '</table>';
     } else {
-      const rows = await call('/api/admin/waitlist');
-      $('out').innerHTML = `<p>${rows.length} on the waitlist</p><table><tr><th>Email</th><th>Source</th><th>Joined</th></tr>` + rows.map(w => `<tr><td>${esc(w.email)}</td><td>${esc(w.source)}</td><td>${esc(String(w.created_at).slice(0, 10))}</td></tr>`).join('') + '</table>';
+      const rows = await call('/api/admin/feedback');
+      $('out').innerHTML = rows.map(f => `<div class="card" style="margin:12px 0"><p class="small muted">${new Date(f.created_at).toISOString().slice(0, 16).replace('T', ' ')} · ${esc(f.email || 'anonymous')} · ${esc(f.page)}</p><p style="white-space:pre-wrap">${esc(f.text)}</p></div>`).join('') || '<p class="muted">No feedback yet.</p>';
     }
     $('flash').textContent = '';
   } catch (x) { $('flash').textContent = x.message; $('flash').className = 'small bad'; }
 }
 window.mkInvite = async () => { const d = await call('/api/admin/invites', { method: 'POST', body: JSON.stringify({ code: $('invCode').value, label: $('invLabel').value, max_uses: $('invMax').value, expires_days: $('invExp').value }) }); load(); };
+window.qr = code => {
+  const box = $('qrBox'), url = `${location.origin}/app?invite=${code}`; box.classList.remove('hide');
+  box.innerHTML = `<h3>${esc(code)}</h3><div id="qrImg" style="display:inline-block;background:#fff;padding:12px"></div><p class="small">${esc(url)}</p><p class="small muted">Right-click or long-press the code to save it for printing.</p>`;
+  new QRCode($('qrImg'), { text: url, width: 260, height: 260, correctLevel: QRCode.CorrectLevel.M }); box.scrollIntoView({ behavior: 'smooth' });
+};
+window.inviteSel = async () => {
+  const emails = [...document.querySelectorAll('.wlPick:checked')].map(x => x.value); if (!emails.length) return;
+  try { const d = await call('/api/admin/waitlist/invite', { method: 'POST', body: JSON.stringify({ code: $('wlCode').value, emails }) });
+    $('flash').textContent = `Invite sent to ${d.sent} of ${emails.length}.`; $('flash').className = 'small ok'; setTimeout(load, 1500); } catch (x) { $('flash').textContent = x.message; $('flash').className = 'small bad'; }
+};
 window.togInvite = async code => { await call('/api/admin/invites/toggle', { method: 'POST', body: JSON.stringify({ code }) }); load(); };
 window.decide = async (id, decision) => { await call('/api/admin/decide', { method: 'POST', body: JSON.stringify({ claimId: id, decision, note: $('note-' + id).value }) }); load(); };
 window.viewDoc = async key => {
