@@ -19,29 +19,29 @@
 <div class="narrow">
 <nav><a class="logo" href="/">Save My <b>Secrets</b></a></nav>
 
-<div class="tabs" id="tabs"><button class="on" data-t="owner">1. You set it up</button><button data-t="nominee">2. Your nominee</button></div>
+<div class="tabs" id="tabs"><button class="on" data-t="owner">1. You set it up</button><button data-t="nominee">2. A nominee</button></div>
 
 <!-- OWNER VIEW -->
 <div id="owner">
-  <h2>Questions only your nominee can answer</h2>
-  <p class="muted">Your nominee won't need a card or a code. Instead, when they come to us, we'll ask them a few questions only they would know. They need to get 2 of the 3 right.</p>
+  <h2>Questions only your nominees can answer</h2>
+  <p class="muted">Your nominees won't need a card or a code. Each nominee gets their own three questions, ones only they would know, and needs to get 2 of the 3 right. If one nominee forgets, another can still open your vault. This preview shows the questions for one nominee.</p>
   <div class="notice">Good questions are things that aren't on social media and that family members wouldn't all know. Avoid birthdays, pets' names and your mother's maiden name.</div>
   <div id="qs"></div>
   <label class="check"><input type="checkbox" id="lenient" checked> <span>Let the AI accept close answers, for example "Puerto Banús" when I wrote "Marbella".</span></label>
   <p class="small muted" id="lenientNote"></p>
-  <p></p><button class="accent" id="toNominee" style="width:100%">See what your nominee sees</button>
+  <p></p><button class="accent" id="toNominee" style="width:100%">See what a nominee sees</button>
 </div>
 
 <!-- NOMINEE VIEW -->
 <div id="nominee" class="hide">
   <h2>Talking to Save My Secrets</h2>
-  <p class="small muted">This is the part of the conversation where your nominee answers your questions. Before this, they've given their name and email and told our assistant what has happened.</p>
+  <p class="small muted">This is the part of the conversation where one of your nominees answers the questions you set for them. Before this, they've given their name and email and told our assistant what has happened.</p>
   <div class="chat" id="chat"></div>
   <form id="ans" class="row"><input id="ansIn" autocomplete="off" placeholder="Type your answer" required><button class="accent">Send</button></form>
   <div id="after" class="hide">
     <div class="qcard">
       <b>What happens next</b>
-      <p class="muted small">1. If you asked for one, the death certificate is uploaded and checked.<br>2. A person at Save My Secrets reviews everything.<br>3. You get a final window, with alerts by email, text and WhatsApp, to say "I'm fine" and stop it.<br>4. Only then is the vault opened for your nominee.</p>
+      <p class="muted small">1. If you asked for one, the death certificate is uploaded and checked.<br>2. A person at Save My Secrets reviews everything.<br>3. You get a final window, with alerts by email, text and WhatsApp, to say "I'm fine" and stop it.<br>4. Only then is the vault opened for them.</p>
     </div>
     <button class="ghost" id="again" style="width:100%">Try again with different answers</button>
   </div>
