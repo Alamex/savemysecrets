@@ -6,7 +6,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
 <body>
@@ -21,8 +21,10 @@
   <form id="fLogin">
     <label>Email</label><input id="lEmail" type="email" required autocomplete="username">
     <label>Master password</label><input id="lPw" type="password" required autocomplete="current-password">
-    <label>Authenticator code</label><input id="lCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits">
-    <p></p><button class="accent" style="width:100%">Unlock</button>
+    <div id="codeRow"><label>Code from your authenticator app</label><input id="lCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits"></div>
+    <div id="recRow" class="hide"><label>One of your recovery codes</label><input id="lRec" autocomplete="off" placeholder="XXXXX-XXXXX"></div>
+    <p class="small"><a href="#" id="toggleRec">Lost your phone? Use a recovery code</a></p>
+    <button class="accent" style="width:100%">Unlock</button>
   </form>
   <form id="fInvite" class="hide">
     <p class="muted">Save My Secrets is invite-only during the alpha.</p>
@@ -53,6 +55,15 @@
 </div>
 
 <!-- SEAL (first vault) -->
+<div id="vRec" class="hide">
+  <h2>Your recovery codes</h2>
+  <p>If you lose or change your phone, each of these codes lets you log in once and set up two-factor login again. <b>Keep them somewhere safe, away from your phone. We can't show them again.</b></p>
+  <div class="code" id="recBox" style="font-size:17px;line-height:1.8"></div>
+  <div class="row noprint"><button class="ghost" onclick="print()">Print</button></div>
+  <label class="check"><input type="checkbox" id="recOk"> I've stored my recovery codes safely</label>
+  <button class="accent" id="btnRecDone" disabled style="width:100%">Continue</button>
+</div>
+
 <div id="vSeal" class="hide">
   <h2>Seal your vault</h2>
   <p class="muted">Your nominees don't need anything from you. Just leave a message in your will or a letter telling them to visit savemysecrets.com if anything happens to you.</p>
@@ -126,7 +137,7 @@
 <script>
 let inviteCode = null, token = null, ownerKey = null, K = null, me = null, vault = { letter: '', items: [] }, pendingSeal = null;
 const $ = id => document.getElementById(id);
-const show = v => ['vAuth','vEnrol','vSeal','vCode','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
+const show = v => ['vAuth','vEnrol','vRec','vSeal','vCode','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
 async function call(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
@@ -177,14 +188,16 @@ $('fLogin').onsubmit = async e => {
   try {
     const { kdfSalt } = await post('/api/prelogin', { email: $('lEmail').value });
     const k = await SMS.deriveFromPassword($('lPw').value, kdfSalt); ownerKey = k.ownerKey;
-    const d = await post('/api/login', { email: $('lEmail').value, authKey: k.authKey, code: $('lCode').value });
+    const useRec = !$('recRow').classList.contains('hide');
+    const d = await post('/api/login', { email: $('lEmail').value, authKey: k.authKey, code: useRec ? '' : $('lCode').value, recovery: useRec ? $('lRec').value : '' });
     token = d.token;
-    if (d.needsEnrol) showEnrol(d.totpSecret); else await loadDash();
+    if (d.needsEnrol) showEnrol(d.totpSecret, d.otpauth); else await loadDash();
   } catch (x) { flash(x.message); } busy(btn, false, 'Unlock');
 };
 $('fEnrol').onsubmit = async e => {
   e.preventDefault(); flash();
-  try { const d = await post('/api/2fa/enable', { code: $('eCode').value }); token = d.token; await loadDash(); } catch (x) { flash(x.message); }
+  try { const d = await post('/api/2fa/enable', { code: $('eCode').value }); token = d.token;
+    if (d.recoveryCodes) { $('recBox').innerHTML = d.recoveryCodes.join('<br>'); show('vRec'); } else await loadDash(); } catch (x) { flash(x.message); }
 };
 
 async function loadDash() {
@@ -207,6 +220,10 @@ $('btnSeal').onclick = async () => {
   else await loadDash();
 };
 $('codeOk').onchange = () => $('btnCodeDone').disabled = !$('codeOk').checked;
+$('toggleRec').onclick = e => { e.preventDefault(); const on = $('recRow').classList.toggle('hide'); $('codeRow').classList.toggle('hide', !on);
+  $('toggleRec').textContent = on ? 'Lost your phone? Use a recovery code' : 'Use my authenticator app instead'; };
+$('recOk').onchange = () => $('btnRecDone').disabled = !$('recOk').checked;
+$('btnRecDone').onclick = () => { $('recBox').textContent = ''; loadDash(); };
 $('btnCodeDone').onclick = () => { pendingSeal = null; $('codeBox').textContent = ''; loadDash(); };
 
 function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
@@ -214,9 +231,10 @@ function renderAll() {
   const next = me.nextCheckin ? new Date(me.nextCheckin).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'not set';
   const stateText = { active: `All good. Next check-in: <b>${next}</b>.`, overdue: '<b class="bad">You missed a check-in.</b> Tap below so we know you\'re fine.',
     nominees_contacted: '<b class="bad">We\'ve contacted your nominees</b> because we couldn\'t reach you. Tap below now.',
-    claim_review: '<b class="bad">A nominee has asked for release and is being verified.</b> Tap below to stop it.',
     veto_window: '<b class="bad">Your vault is about to be released.</b> Tap below to stop it.', released: 'This vault has been released.' }[me.state] || me.state;
-  $('statusLine').innerHTML = `${stateText}<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'No card or code needed'}</span>`;
+  const claimText = me.openClaim ? '<br><b class="bad">One of your nominees has asked for your vault.</b> If you\'re fine, tap below and the request is closed.' : '';
+  const recText = me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
+  $('statusLine').innerHTML = `${stateText}${claimText}${recText}<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'No card or code needed'}</span>`;
   $('letter').value = vault.letter || '';
   $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b><span class="small muted">${esc(it.type)}</span>
     <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
@@ -250,7 +268,7 @@ $('btnRules').onclick = async () => {
 $('btnFine').onclick = async () => { await post('/api/me/checkin', {}); me = await call('/api/me'); renderAll(); flash('Checked in. Thank you.', true); };
 
 
-$('logout').onclick = e => { e.preventDefault(); location.reload(); };
+$('logout').onclick = async e => { e.preventDefault(); try { await post('/api/logout', {}); } catch {} location.reload(); };
 </script>
 </body>
 </html>

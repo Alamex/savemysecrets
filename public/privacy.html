@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy | Save My Secrets</title>
+<meta name="description" content="What Save My Secrets stores, what we can and can't read, and who helps us run the service.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
+<div class="narrow">
+<nav><a class="logo" href="/">Save My <b>Secrets</b></a><a href="/app" class="small">Log in</a></nav>
+
+<h1>Privacy</h1>
+<p class="muted">Last updated 13 October 2026. This is a plain-English alpha version and is being reviewed by a lawyer before launch.</p>
+
+<h2>Who we are</h2>
+<p>Save My Secrets is run by Alamex Ltd, which is the data controller for the personal information described here. You can reach us at <a href="mailto:savemysecrets@alamex.com">savemysecrets@alamex.com</a>.</p>
+
+<h2>What we can't read</h2>
+<p>Everything you put in your vault (personal messages, final wishes, passwords, account details and documents) is encrypted in your browser before it is sent to us. We store only the encrypted version. Your master password never leaves your device.</p>
+<div class="notice"><b>Alpha, stated plainly:</b> in the default setting, we also hold a release key so we can pass your vault to your nominees. That means during the alpha we could technically open a vault. We only use it after the release checks, but it is a promise, not a technical guarantee. Nominee questions, which remove our ability to open vaults, are being built. You can check all of this in our <a href="https://github.com/Alamex/savemysecrets">public source code</a>.</div>
+
+<h2>What we can read, and why</h2>
+<ul>
+<li><b>Your account:</b> name, email address, mobile number, your check-in settings and your account status. We need these to log you in and check in with you.</li>
+<li><b>Your nominees:</b> the names, email addresses, phone numbers, postal addresses and relationships you give us. We need these to contact them and to check who they are if they ask for access.</li>
+<li><b>Security records:</b> a hash of your login key (not your password), your two-factor secret, hashes of your recovery codes, and records of logins, check-ins and messages we send.</li>
+<li><b>Nominee requests:</b> if someone asks for access to a vault, we store their name, email address, their conversation with our verification assistant, any document they upload (such as a death certificate), and our automated assessment of it.</li>
+<li><b>Waiting list:</b> your email address, plus the IP address and browser details sent with the form, to stop abuse.</li>
+<li><b>Rate limiting:</b> short-lived counters keyed to IP addresses and email addresses, to slow down people trying to guess their way in.</li>
+</ul>
+<p>Our lawful bases are performing our contract with you (running the service you signed up for) and our legitimate interest in keeping vaults secure and preventing fraud. For nominees, it is the legitimate interest of the owner who named you, and of you, in passing on what they left.</p>
+
+<h2>Who helps us run the service</h2>
+<ul>
+<li><b>Cloudflare</b> hosts the website and database. Our database is currently stored in Cloudflare's eastern North America region.</li>
+<li><b>Anthropic</b> provides the AI that interviews nominees and checks documents. It only receives information from nominee requests (the conversation, the uploaded document and the owner's name). It never receives vault contents.</li>
+<li><b>Email, text and WhatsApp providers</b> will deliver our messages once they are switched on. We will list them here by name before they are.</li>
+</ul>
+<p>Some of these providers process data outside the UK. Where they do, we rely on the UK's approved transfer safeguards, such as the International Data Transfer Addendum or the UK–US data bridge.</p>
+<p>We do not sell your data, show adverts or use tracking cookies. The only browser storage we use keeps you logged in during a visit.</p>
+
+<h2>How long we keep it</h2>
+<ul>
+<li>Your account, vault and nominees: until you ask us to delete your account, or until your vault has been released and 12 months have passed.</li>
+<li>Nominee requests: for 12 months after they close, so we can investigate any dispute.</li>
+<li>Waiting list: until you join or ask to be removed.</li>
+<li>Rate limiting counters: they reset within a day.</li>
+</ul>
+
+<h2>Your rights</h2>
+<p>You can ask to see, correct or delete the information we hold about you, or object to how we use it. During the alpha, email <a href="mailto:savemysecrets@alamex.com">savemysecrets@alamex.com</a> from the address on your account and we will act within one month. If you are unhappy with our answer you can complain to the Information Commissioner's Office at <a href="https://ico.org.uk">ico.org.uk</a>.</p>
+
+<h2>If we stop running the service</h2>
+<p>We will email every account holder at least 90 days before closing, so you can move what matters. Because your vault is encrypted, the encrypted copy is useless to anyone who takes over our systems without your password or the release key.</p>
+
+<h2>Changes</h2>
+<p>If we make a significant change to this page, we will email account holders before it takes effect.</p>
+</div>
+<footer><div class="narrow"><a href="/">Home</a> · <a href="/terms">Terms</a> · <a href="mailto:savemysecrets@alamex.com">savemysecrets@alamex.com</a></div></footer>
+</body>
+</html>

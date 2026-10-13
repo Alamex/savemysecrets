@@ -12,7 +12,7 @@
 <body>
 <div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
 <div class="wrap">
-  <nav><a class="logo" href="/">Save My <b>Secrets</b></a><a href="/app" class="small">Log in</a></nav>
+  <nav><a class="logo" href="/">Save My <b>Secrets</b></a><span class="small"><a href="/claim">Nominees</a> &nbsp;·&nbsp; <a href="/app">Log in</a></span></nav>
 
   <div class="hero" id="notify">
     <span class="pill">Alpha · invite only</span>
@@ -24,6 +24,7 @@
       <button class="ghost" type="submit">Join the waiting list</button>
     </form>
     <p id="wlMsg" class="small"></p>
+    <p class="small muted">Named as a nominee by someone who has died or can't be reached? <a href="/claim">Start here</a>.</p>
   </div>
 </div>
 
@@ -68,7 +69,7 @@
   <details><summary>What does it cost?</summary><p class="muted">Free during the alpha.</p></details>
 </div></section>
 
-<footer><div class="wrap">Save My Secrets · alpha · an Alamex Ltd project · <a href="mailto:savemysecrets@alamex.com">savemysecrets@alamex.com</a></div></footer>
+<footer><div class="wrap">Save My Secrets · alpha · an Alamex Ltd project · <a href="/claim">Nominees</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="https://github.com/Alamex/savemysecrets">Source code</a> · <a href="mailto:savemysecrets@alamex.com">savemysecrets@alamex.com</a></div></footer>
 
 <script>
 const src = new URLSearchParams(location.search).get('src') || 'site';

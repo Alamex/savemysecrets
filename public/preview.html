@@ -27,8 +27,7 @@
   <p class="muted">Your nominees won't need a card or a code. Each nominee gets their own three questions, ones only they would know, and needs to get 2 of the 3 right. If one nominee forgets, another can still open your vault. This preview shows the questions for one nominee.</p>
   <div class="notice">Good questions are things that aren't on social media and that family members wouldn't all know. Avoid birthdays, pets' names and your mother's maiden name.</div>
   <div id="qs"></div>
-  <label class="check"><input type="checkbox" id="lenient" checked> <span>Let the AI accept close answers, for example "Puerto Banús" when I wrote "Marbella".</span></label>
-  <p class="small muted" id="lenientNote"></p>
+  <p class="small muted">Only exact answers, or the other ways of saying it that you list, will work. Capitals, spaces, accents and punctuation are ignored. Your answers are never sent to us: they become the key itself.</p>
   <p></p><button class="accent" id="toNominee" style="width:100%">See what a nominee sees</button>
 </div>
 
@@ -64,13 +63,6 @@ function renderQs() {
     </div>`).join('');
 }
 renderQs();
-function lenNote() {
-  $('lenientNote').textContent = $('lenient').checked
-    ? 'Trade-off: to judge "close", the AI has to see your answers, so they are stored with us rather than locked away. Untick for maximum security: then only exact answers, or the alternatives you list, will work.'
-    : 'Maximum security: only exact answers, or the alternatives you list, will open the vault. Capitals, spaces and punctuation are ignored.';
-}
-$('lenient').onchange = lenNote; lenNote();
-
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => go(b.dataset.t));
 function go(t) {
   document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x.dataset.t === t));
@@ -90,23 +82,15 @@ function bubble(role, text, cls) {
 function start() {
   set = [0, 1, 2].map(i => ({ q: $('q' + i).value.trim(), a: $('a' + i).value.trim(), alts: $('alt' + i).value.split(',').map(s => s.trim()).filter(Boolean) })).filter(x => x.q && x.a);
   idx = 0; results = []; $('chat').innerHTML = ''; $('after').classList.add('hide'); $('ans').classList.remove('hide');
-  bubble('ai', `Thank you. Neil left a few questions that only the right person would know. You need to get ${Math.min(2, set.length)} of ${set.length} right, and it's fine if you're not word-perfect.`);
+  bubble('ai', `Thank you. Neil left a few questions that only the right person would know. You need to get ${Math.min(2, set.length)} of ${set.length} right. Capitals, spaces and punctuation don't matter.`);
   setTimeout(() => bubble('ai', set[0].q), 500);
 }
 $('ans').onsubmit = async e => {
   e.preventDefault(); const given = $('ansIn').value.trim(); if (!given) return; $('ansIn').value = '';
   const cur = set[idx]; bubble('me', given);
-  let verdict = 'no', reason = '';
-  if ([cur.a, ...cur.alts].some(x => norm(x) === norm(given))) verdict = 'match';
-  else if ($('lenient').checked) {
-    try {
-      const r = await fetch('/api/preview/judge', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ question: cur.q, expected: cur.a, alternatives: cur.alts, given }) });
-      const d = await r.json(); verdict = d.verdict || 'no'; reason = d.reason || '';
-    } catch { verdict = 'no'; }
-  }
-  results.push(verdict !== 'no');
-  const tag = verdict === 'match' ? { c: 'ok', t: 'Preview note: exact match' } : verdict === 'close' ? { c: 'ok', t: 'Preview note: accepted as close' + (reason ? `: ${reason}` : '') } : { c: 'bad', t: 'Preview note: not accepted' + (reason ? `: ${reason}` : '') };
-  bubble('ai', verdict === 'no' ? 'Thank you.' : 'Thank you, that\'s helpful.', tag);
+  const ok = [cur.a, ...cur.alts].some(x => norm(x) === norm(given));
+  results.push(ok);
+  bubble('ai', 'Thank you.', ok ? { c: 'ok', t: 'Preview note: matches' } : { c: 'bad', t: 'Preview note: does not match' });
   idx++;
   const need = Math.min(2, set.length), got = results.filter(Boolean).length, left = set.length - idx;
   if (got >= need || got + left < need || idx >= set.length) {
@@ -114,7 +98,7 @@ $('ans').onsubmit = async e => {
     const pass = got >= need;
     setTimeout(() => {
       bubble('ai', pass ? 'Thank you, that\'s everything I need from the questions. We\'ll take you through the remaining checks next.'
-        : 'Thank you. I\'m not able to confirm this from those answers. You can try again later, but each attempt adds a longer wait.',
+        : 'Thank you. I\'m not able to confirm this from those answers. You can try again later, but each failed attempt means a longer wait before the next one: an hour, then a day, then a week.',
         { c: pass ? 'ok' : 'bad', t: `Preview note: ${got} of ${set.length} accepted, ${need} needed: ${pass ? 'passed' : 'not passed'}` });
       $('after').classList.remove('hide');
     }, 500);

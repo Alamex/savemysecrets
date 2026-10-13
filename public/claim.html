@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Nominee access | Save My Secrets</title>
+<title>For nominees | Save My Secrets</title>
+<meta name="description" content="Has someone named you as their nominee on Save My Secrets? Start here.">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
@@ -15,18 +16,29 @@
 <p id="flash" class="small"></p>
 
 <div id="s1">
-  <h2>You've been named as a trusted contact</h2>
-  <p class="muted">We're sorry if you're here because something has happened. We'll verify a few things to protect your loved one's wishes. It usually takes about 10 minutes.</p>
+  <h2>Named as a nominee?</h2>
+  <p class="muted">If someone has left you a message to come here, we're sorry you're dealing with this. First, create your account by confirming your email address. Use the email address they're likely to have given us for you.</p>
   <form id="f1">
-    <label>Your full name</label><input id="cName" required>
-    <label>Your email (the one we contacted)</label><input id="cEmail" type="email" required>
+    <label>Your full name</label><input id="cName" required autocomplete="name">
+    <label>Your email</label><input id="cEmail" type="email" required autocomplete="email">
     <p></p><button class="accent" style="width:100%">Send me a code</button>
   </form>
 </div>
 
 <div id="s2" class="hide">
-  <h2>Check your email</h2><p class="muted" id="s2msg"></p>
-  <form id="f2"><input id="cCode" inputmode="numeric" placeholder="6-digit code" required><p></p><button class="accent" style="width:100%">Continue</button></form>
+  <h2>Check your email</h2>
+  <p class="muted">We've sent a 6-digit code to <b id="sentTo"></b>. It expires in 20 minutes.</p>
+  <form id="f2"><input id="cCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code" required><p></p><button class="accent" style="width:100%">Confirm my email</button></form>
+</div>
+
+<div id="sFind" class="hide">
+  <h2>Whose vault is it?</h2>
+  <p class="muted">Enter the email address the person used with Save My Secrets. We'll check they named you as one of their nominees.</p>
+  <form id="fFind">
+    <label>Their email address</label><input id="oEmail" type="email" required>
+    <p></p><button class="accent" style="width:100%">Continue</button>
+  </form>
+  <p class="small muted">As soon as you continue, we contact them on every channel. If they're fine, one tap from them closes your request.</p>
 </div>
 
 <div id="s3" class="hide">
@@ -44,50 +56,56 @@
 
 <div id="s5" class="hide">
   <h2>Thank you</h2>
-  <p id="s5msg" class="muted">Your request is being checked. We'll email you when there's an update. You can close this page and come back to it later using the link in your email.</p>
+  <p id="s5msg" class="muted"></p>
   <button class="ghost" id="btnCheck" style="width:100%">Check status</button>
 </div>
 
 <div id="s6" class="hide">
   <h2>Access released</h2>
   <p class="muted" id="s6msg"></p>
-  <div id="codeWrap"><label>Legacy code (from the card or letter you were given)</label><input id="cLegacy" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autocomplete="off"></div>
+  <div id="codeWrap"><label>Code (from the card or letter you were given)</label><input id="cLegacy" placeholder="32 letters and numbers" autocomplete="off"></div>
   <p></p><button class="accent" id="btnOpen" style="width:100%">Open the vault</button>
   <div id="vaultOut"></div>
 </div>
 </div>
+<footer><div class="narrow"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="mailto:savemysecrets@alamex.com">savemysecrets@alamex.com</a></div></footer>
 
 <script>
 const $ = id => document.getElementById(id);
 const u = new URLSearchParams(location.search).get('u');
-let claimId = null, token = sessionStorage.getItem('claimToken'), pkg = null;
-const step = n => [1,2,3,4,5,6].forEach(i => $('s' + i).classList.toggle('hide', i !== n));
+let claimantId = null, ctoken = sessionStorage.getItem('claimantToken'), token = sessionStorage.getItem('claimToken'), pkg = null, owner = '';
+const step = n => ['s1','s2','sFind','s3','s4','s5','s6'].forEach(i => $(i).classList.toggle('hide', i !== n));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
-async function call(path, opts = {}) {
-  const r = await fetch(path, { ...opts, headers: { ...(opts.body && !(opts.body instanceof FormData) ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) } });
+async function call(path, opts = {}, tok = token) {
+  const r = await fetch(path, { ...opts, headers: { ...(opts.body && !(opts.body instanceof FormData) ? { 'content-type': 'application/json' } : {}), ...(tok ? { authorization: 'Bearer ' + tok } : {}) } });
   const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Something went wrong'); return d;
 }
-const bubble = (role, text) => { const d = document.createElement('div'); d.className = 'bubble ' + (role === 'user' ? 'me' : 'ai'); d.textContent = text; $('chat').appendChild(d); d.scrollIntoView({ behavior: 'smooth' }); };
+const bubble = (role, text) => { const d = document.createElement('div'); d.className = 'bubble ' + (role === 'user' ? 'me' : 'ai'); d.textContent = text; $('chat').appendChild(d); d.scrollIntoView({ behavior: 'smooth', block: 'end' }); };
 
-if (!u && !token) flash('This page needs the link from your email.');
 $('f1').onsubmit = async e => {
   e.preventDefault(); flash();
-  try { const d = await call('/api/claim/start', { method: 'POST', body: JSON.stringify({ u, name: $('cName').value, email: $('cEmail').value }) });
-    claimId = d.claimId; $('s2msg').textContent = d.message; step(2); } catch (x) { flash(x.message); }
+  try { const d = await call('/api/claimant/start', { method: 'POST', body: JSON.stringify({ name: $('cName').value, email: $('cEmail').value }) }, null);
+    claimantId = d.claimantId; $('sentTo').textContent = $('cEmail').value; step('s2'); } catch (x) { flash(x.message); }
 };
 $('f2').onsubmit = async e => {
   e.preventDefault(); flash();
-  try { const d = await call('/api/claim/verify', { method: 'POST', body: JSON.stringify({ claimId, code: $('cCode').value }) });
-    token = d.token; sessionStorage.setItem('claimToken', token); step(3); bubble('assistant', d.message); } catch (x) { flash(x.message); }
+  try { const d = await call('/api/claimant/verify', { method: 'POST', body: JSON.stringify({ claimantId, code: $('cCode').value }) }, null);
+    ctoken = d.token; sessionStorage.setItem('claimantToken', ctoken);
+    if (u) await find({ u }); else step('sFind'); } catch (x) { flash(x.message); }
 };
+async function find(q) {
+  const d = await call('/api/claim/find', { method: 'POST', body: JSON.stringify(q) }, ctoken);
+  token = d.token; sessionStorage.setItem('claimToken', token);
+  if (d.status === 'interview') { step('s3'); $('chat').innerHTML = ''; bubble('assistant', d.message); } else await checkStatus();
+}
+$('fFind').onsubmit = async e => { e.preventDefault(); flash(); try { await find({ ownerEmail: $('oEmail').value }); } catch (x) { flash(x.message); } };
 $('f3').onsubmit = async e => {
   e.preventDefault(); const t = $('cMsg').value.trim(); if (!t) return; $('cMsg').value = ''; bubble('user', t);
   const btn = e.submitter; btn.disabled = true;
   try { const d = await call('/api/claim/message', { method: 'POST', body: JSON.stringify({ text: t }) }); bubble('assistant', d.reply);
-    if (d.done) setTimeout(() => step(d.status === 'awaiting_document' ? 4 : 5), 1200); } catch (x) { flash(x.message); }
+    if (d.done) setTimeout(() => d.status === 'awaiting_document' ? step('s4') : checkStatus(), 1200); } catch (x) { flash(x.message); }
   btn.disabled = false;
 };
-// Phone photos are large: resize images in the browser to ~2000px JPEG before upload
 async function shrink(f) {
   if (!f || !f.type.startsWith('image/') || f.size < 900000) return f;
   const img = await createImageBitmap(f); const s = Math.min(1, 2000 / Math.max(img.width, img.height));
@@ -99,18 +117,19 @@ async function shrink(f) {
 $('f4').onsubmit = async e => {
   e.preventDefault(); const fd = new FormData(); fd.append('file', await shrink($('cFile').files[0]));
   e.submitter.disabled = true; e.submitter.textContent = 'Checking document...';
-  try { await call('/api/claim/document', { method: 'POST', body: fd }); step(5); } catch (x) { flash(x.message); e.submitter.disabled = false; e.submitter.textContent = 'Upload'; }
+  try { await call('/api/claim/document', { method: 'POST', body: fd }); await checkStatus(); } catch (x) { flash(x.message); e.submitter.disabled = false; e.submitter.textContent = 'Upload'; }
 };
 async function checkStatus() {
-  const d = await call('/api/claim/status');
+  const d = await call('/api/claim/status'); owner = d.ownerFirstName || 'they';
+  const msg = t => { $('s5msg').textContent = t; step('s5'); };
   if (d.status === 'released') { pkg = d.package; $('s6msg').textContent = `${pkg.name}'s vault has been released to you.`;
-    $('codeWrap').classList.toggle('hide', pkg.releaseMode === 'standard'); step(6); }
-  else if (d.status === 'approved') { $('s5msg').textContent = `Your request has been approved. As a final safeguard, the account holder has until ${new Date(d.vetoEndsAt).toUTCString()} to respond. If they don't, access will open here.`; step(5); }
-  else if (d.status === 'vetoed') { $('s5msg').textContent = 'The account holder has confirmed they are well, so this request has been closed.'; step(5); }
-  else if (d.status === 'rejected') { $('s5msg').textContent = 'We could not verify this request. Please reply to our email if you believe this is wrong.'; step(5); }
-  else if (d.status === 'awaiting_document') step(4);
-  else if (d.status === 'interview') step(3);
-  else step(5);
+    $('codeWrap').classList.toggle('hide', pkg.releaseMode === 'standard'); step('s6'); }
+  else if (d.status === 'approved') msg(`Your request has passed our checks. As a final check, we keep trying to reach ${owner} until ${new Date(d.vetoEndsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}. If there's no response by then, access opens here and we'll email you.`);
+  else if (d.status === 'vetoed') msg(`${owner} has confirmed they are well, so this request has been closed.`);
+  else if (d.status === 'rejected') msg('We could not verify this request. Please reply to our email if you believe this is wrong.');
+  else if (d.status === 'awaiting_document') step('s4');
+  else if (d.status === 'interview') step('s3');
+  else msg(`Thank you. Your request is being checked, and we're trying to reach ${owner} in the meantime. We'll email you when there's an update. You can close this page and come back later.`);
 }
 $('btnCheck').onclick = () => checkStatus().catch(x => flash(x.message));
 $('btnOpen').onclick = async () => {
@@ -124,7 +143,8 @@ $('btnOpen').onclick = async () => {
     (v.items || []).forEach(it => add(it.title, it.body));
   } catch (x) { flash('That code did not open the vault. Check it carefully, letter by letter.'); }
 };
-if (token && !u) checkStatus().catch(() => {});
+if (token) checkStatus().catch(() => { sessionStorage.removeItem('claimToken'); token = null; });
+else if (ctoken) { if (u) find({ u }).catch(x => flash(x.message)); else step('sFind'); }
 </script>
 </body>
 </html>

@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS users (
   totp_secret TEXT,                 -- base32, null until 2FA enrolled
   totp_enabled INTEGER DEFAULT 0,
   invite_code TEXT,
+  recovery_hashes TEXT,             -- SHA-256 of one-off recovery codes
+  link_used_issue INTEGER DEFAULT 0, -- check-in links issued at or before this are spent
+  prev_state TEXT, prev_next_checkin INTEGER, forced_overdue INTEGER DEFAULT 0,
   -- vault (all ciphertext; server cannot read)
   vault_ct TEXT,                    -- AES-GCM(K_vault, vault JSON)
   wrapped_owner TEXT,               -- AES-GCM(K_owner(password), K_vault)
@@ -22,7 +25,7 @@ CREATE TABLE IF NOT EXISTS users (
   proof_required TEXT DEFAULT 'death_certificate', -- none | nominee_confirm | death_certificate
   veto_days INTEGER DEFAULT 7,
   -- state machine
-  state TEXT DEFAULT 'active',      -- active | overdue | nominees_contacted | claim_review | veto_window | released
+  state TEXT DEFAULT 'active',      -- active | overdue | nominees_contacted | veto_window | released
   next_checkin_at INTEGER,
   overdue_since INTEGER,
   last_reminder_at INTEGER,
@@ -40,7 +43,7 @@ CREATE TABLE IF NOT EXISTS nominees (
   created_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS claims (
-  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, nominee_id TEXT,
+  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, nominee_id TEXT, claimant_id TEXT,
   claimant_email TEXT NOT NULL, claimant_name TEXT,
   status TEXT DEFAULT 'otp',        -- otp | interview | awaiting_document | review | approved | rejected | vetoed | released
   otp_hash TEXT, otp_expires INTEGER,
@@ -64,6 +67,13 @@ CREATE TABLE IF NOT EXISTS invites (
   code TEXT PRIMARY KEY, label TEXT, max_uses INTEGER DEFAULT 100, uses INTEGER DEFAULT 0,
   active INTEGER DEFAULT 1, expires_at INTEGER, created_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS claimants (
+  id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, otp_hash TEXT, otp_expires INTEGER,
+  otp_attempts INTEGER DEFAULT 0, verified INTEGER DEFAULT 0, token TEXT, created_at INTEGER
+);
+CREATE TABLE IF NOT EXISTS ratelimit ( key TEXT PRIMARY KEY, count INTEGER, reset_at INTEGER );
 CREATE TABLE IF NOT EXISTS docs ( key TEXT PRIMARY KEY, mime TEXT, data TEXT, created_at INTEGER );
 CREATE INDEX IF NOT EXISTS idx_users_state ON users(state, next_checkin_at);
 CREATE INDEX IF NOT EXISTS idx_claims_user ON claims(user_id);
+CREATE INDEX IF NOT EXISTS idx_claimants_token ON claimants(token);
+CREATE INDEX IF NOT EXISTS idx_claims_token ON claims(token);
