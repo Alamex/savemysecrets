@@ -6,7 +6,9 @@
 //   S  = server share (held by the service, released only after verification)
 //   L  = legacy code (printed, given to the nominee; never sent to the service in sovereign mode)
 //   wrappedRelease = AES-GCM(SHA-256(S || L), K)
-// The service alone (S) cannot open a vault; the nominee alone (L) cannot either.
+// Sovereign mode (printed legacy code): neither the service (S) nor the nominee (L) can open a vault alone.
+// Standard mode (the alpha default): L is all zeros, so the service's share S alone CAN open the vault.
+// Planned: L is derived from each nominee's answers, so the service cannot open it.
 
 function SMSFactory() {
   const te = new TextEncoder(), td = new TextDecoder();

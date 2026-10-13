@@ -1,5 +1,6 @@
 // Save My Secrets — alpha Worker (API + daily check-in cron)
-// Server never sees the master password, the vault key or the legacy code.
+// The server never sees the master password or the legacy code. NOTE: in standard mode (the alpha default)
+// it stores the release share that can unwrap the vault key, so it could open vaults. See README.
 
 const BRAND = 'Save My Secrets';
 const DAY = 86400000;

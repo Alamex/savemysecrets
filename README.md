@@ -30,7 +30,7 @@ The release design is being finalised during the alpha. **Current alpha behaviou
 
 - The owner writes three questions only their nominee could answer. The nominee's copy of the vault key is locked with a key made from those answers plus our release share. Any two correct answers unlock it.
 - Answers are typed and checked on the nominee's own device and never sent to us. Without them, nobody can open the vault, including us. If the nominee can't answer, the vault cannot be recovered. That is deliberate.
-- Before our share is released, the nominee must pass an AI interview, a passport check against details the owner provided, the owner's proof rules (such as a checked death certificate), human review, and the owner's final window to say "I'm fine". Face matching follows in the beta.
+- Release is fully automated, with no human review. Before our share is released, the nominee must pass an AI interview, a passport check against details the owner provided, the owner's proof rules (such as an automatically checked death certificate), and the owner's final window to say "I'm fine". Face matching follows in the beta.
 
 ## Check-ins
 
