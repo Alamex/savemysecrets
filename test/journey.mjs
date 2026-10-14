@@ -17,7 +17,7 @@ await page.goto(B + '/'); await page.click('text=I have an invite code'); await 
 await page.waitForSelector('#fSignup:not(.hide)'); ok(true, 'invite accepted');
 await page.fill('#sName', 'Journey Tester'); await page.fill('#sEmail', email); await page.fill('#sPhone', '+971500000009');
 await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
-await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); const secret = (await page.textContent('#totpKey')).trim(); ok(secret.length >= 16, '2FA key shown');
+await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); await shot('0-2fa'); ok((await page.getAttribute('#otpLink', 'href')).startsWith('otpauth://'), 'tap-to-add authenticator link present'); const secret = (await page.textContent('#totpKey')).trim(); ok(secret.length >= 16, '2FA key shown');
 await page.fill('#eCode', totp(secret)); await page.click('#fEnrol button');
 await page.waitForSelector('#vRec:not(.hide)'); const codes = (await page.textContent('#vRec')).match(/[A-Z0-9]{5}-[A-Z0-9]{5}/g); ok(codes?.length === 10, '10 recovery codes shown');
 ok(await page.isDisabled('#btnRecDone'), 'cannot continue until codes confirmed stored');

@@ -48,9 +48,11 @@
 <!-- 2FA ENROL -->
 <div id="vEnrol" class="hide">
   <h2>Set up two-factor</h2>
-  <p class="muted">Scan with Google Authenticator, 1Password, Authy or similar, then enter the 6-digit code.</p>
+  <p class="muted">Add Save My Secrets to an authenticator app (Google Authenticator, 1Password, Authy or your iPhone's Passwords app), then enter the 6-digit code it shows.</p>
+  <p><a id="otpLink" class="btn ghost" style="width:100%;text-align:center">On this phone? Tap to add it to your authenticator app</a></p>
+  <p class="small muted">On a computer? Scan this with your phone:</p>
   <div id="qr" style="background:#fff;padding:12px;display:inline-block;border-radius:10px"></div>
-  <p class="small muted">Or enter this key: <code id="totpKey"></code></p>
+  <p class="small muted">If neither works, type this setup key into your authenticator app instead: <code id="totpKey"></code> <a href="#" id="copyKey">Copy</a><br>You only need it once, during setup. Your recovery codes, on the next screen, are your backup.</p>
   <form id="fEnrol"><input id="eCode" inputmode="numeric" placeholder="6-digit code" required><p></p><button class="accent" style="width:100%">Turn on two-factor</button></form>
 </div>
 
@@ -223,7 +225,10 @@ $('btnFb').onclick = async () => {
 
 function showEnrol(secret, otpauth) {
   $('qr').innerHTML = ''; if (window.QRCode) new QRCode($('qr'), { text: otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`, width: 180, height: 180 });
-  $('totpKey').textContent = secret.match(/.{1,4}/g).join(' '); show('vEnrol');
+  $('totpKey').textContent = secret.match(/.{1,4}/g).join(' ');
+  $('otpLink').href = otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`;
+  $('copyKey').onclick = e => { e.preventDefault(); navigator.clipboard?.writeText(secret).then(() => { $('copyKey').textContent = 'Copied'; }); };
+  show('vEnrol');
 }
 
 $('fInvite').onsubmit = async e => {
