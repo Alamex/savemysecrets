@@ -15,9 +15,9 @@ const email = `qa+journey${Date.now()}@example.com`, pw = 'a long and memorable 
 // 1. Sign up from the homepage button
 await page.goto(B + '/'); await page.click('text=I have an invite code'); await page.fill('#iCode', inv); await page.click('#fInvite button');
 await page.waitForSelector('#fSignup:not(.hide)'); ok(true, 'invite accepted');
-await page.fill('#sName', 'Journey Tester'); await page.fill('#sEmail', email); await page.fill('#sPhone', '+971500000009');
+await page.fill('#sName', 'Journey Tester'); await page.fill('#sEmail', email); await page.click('#sPhone'); await page.keyboard.type('+971 50 000 0009'); ok(await page.inputValue('#sPhone') === '+971 50 000 0009', 'typing + into the phone field does not double it');
 await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
-await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); await shot('0-2fa'); ok((await page.getAttribute('#otpLink', 'href')).startsWith('otpauth://'), 'tap-to-add authenticator link present'); const secret = (await page.textContent('#totpKey')).trim(); ok(secret.length >= 16, '2FA key shown');
+await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }).catch(async e => { console.log('   flash:', await page.textContent('#flash')); throw e; }); await shot('0-2fa'); ok((await page.getAttribute('#otpLink', 'href')).startsWith('otpauth://'), 'tap-to-add authenticator link present'); const secret = (await page.textContent('#totpKey')).trim(); ok(secret.length >= 16, '2FA key shown');
 await page.fill('#eCode', totp(secret)); await page.click('#fEnrol button');
 await page.waitForSelector('#vRec:not(.hide)'); const codes = (await page.textContent('#vRec')).match(/[A-Z0-9]{5}-[A-Z0-9]{5}/g); ok(codes?.length === 10, '10 recovery codes shown');
 ok(await page.isDisabled('#btnRecDone'), 'cannot continue until codes confirmed stored');

@@ -66,6 +66,8 @@ let serverAlone = true; try { await SMS.unlockRelease(v.upload.serverShare, v.up
 ok(!serverAlone, 'server share alone cannot open vault');
 
 ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nom Inee', email: 'nominee@example.com', phone: '+447700900000', relationship: 'wife' } })).s === 200, 'nominee added');
+ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'No Plus', email: 'noplus@example.com', phone: '07700 900000' } })).s === 400, 'phone without country code refused');
+ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { phone: '00971 50 123 4567' } })).s === 200 && (await call('/api/me', { token: tok })).d.phone === '+971501234567', 'phone tidied to +971501234567');
 ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, grace_weeks: 6, proof_required: 'death_certificate', veto_days: 7 } })).s === 200, 'policy saved');
 // Rehearsal: owner plays their nominee; nothing stored, nobody alerted, state unchanged
 const evBefore = (await call('/api/admin/events', { token: ADM })).d[0].id;
@@ -123,7 +125,7 @@ async function roleplay(history, story = STORY) {
 }
 const live = B.startsWith('https');
 async function interview(tok, story) {
-  const h = [{ ai: true, text: 'I\'m sorry you\'re dealing with this. To start: what has happened, and when?' }]; let res;
+  const h = [{ ai: true, text: 'I\'m sorry you\'re dealing with this. To start, can you tell me what has happened?' }]; let res;
   for (let i = 0; i < 12; i++) {
     const msg = live ? await roleplay(h, story) : 'answer ' + i; h.push({ ai: false, text: msg });
     res = (await call('/api/claim/message', { method: 'POST', token: tok, body: { text: msg } })).d; if (res.done || !live && i >= 2) break; h.push({ ai: true, text: res.reply });

@@ -5,14 +5,19 @@
 <title>Your vault | Save My Secrets</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/style.css?v=20261014a">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#1f3a5f">
+<link rel="stylesheet" href="/style.css?v=20261014b">
 <script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
 <body>
 <div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
 <div class="narrow">
-<nav><a class="logo" href="/">Save My <b>Secrets</b></a><a href="#" id="logout" class="small hide">Log out</a></nav>
+<nav><a class="logo" href="/"><img src="/favicon.svg" class="logo-icon" alt="" width="30" height="30">Save My <b>Secrets</b></a><a href="#" id="logout" class="small hide">Log out</a></nav>
 <p id="flash" class="small"></p>
 
 <!-- AUTH -->
@@ -36,7 +41,7 @@
     <p class="small ok" id="inviteOk"></p>
     <label>Your full name</label><input id="sName" required autocomplete="name">
     <label>Email</label><input id="sEmail" type="email" required autocomplete="email">
-    <label>Mobile (for check-in texts and WhatsApp)</label><input id="sPhone" type="tel" placeholder="+44..." autocomplete="tel">
+    <label>Mobile (for check-in texts and WhatsApp)</label><input id="sPhone" type="tel" placeholder="+ country code and number" autocomplete="tel">
     <label>Master password (at least 12 characters)</label><input id="sPw" type="password" minlength="12" required autocomplete="new-password">
     <label>Confirm master password</label><input id="sPw2" type="password" minlength="12" required autocomplete="new-password">
     <label class="check"><input type="checkbox" id="sAlpha" required> I understand this is an alpha and I won't store anything mission critical yet.</label>
@@ -115,7 +120,7 @@
     <details open><summary>Add a nominee</summary>
       <label>Full name</label><input id="nName">
       <label>Email</label><input id="nEmail" type="email">
-      <label>Mobile</label><input id="nPhone" type="tel" placeholder="+44...">
+      <label>Mobile</label><input id="nPhone" type="tel" placeholder="+ country code and number">
       <label>Postal address</label><textarea id="nAddr" style="min-height:70px"></textarea>
       <label>Relationship to you</label><input id="nRel" placeholder="e.g. wife, brother, solicitor">
       <label class="check"><input type="checkbox" id="nEarly"> Tell them now that I've named them (otherwise they hear nothing until it matters)</label>
@@ -128,7 +133,7 @@
     <label>If I don't respond, keep trying me for</label><select id="rWeeks"><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="6">6 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select>
     <label>Before release, my nominee must</label><select id="rProof"><option value="death_certificate">provide a death certificate (checked)</option><option value="nominee_confirm">pass the interview and confirm what happened</option><option value="none">pass the interview only</option></select>
     <label>Final check before release: how long you have to respond</label><select id="rVeto"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
-    <label>My mobile</label><input id="rPhone" type="tel">
+    <label>My mobile</label><input id="rPhone" type="tel" placeholder="+ country code and number">
     <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
   </div>
 
@@ -162,6 +167,10 @@
 <script>
 let inviteCode = null, token = null, ownerKey = null, K = null, me = null, vault = { letter: '', items: [] }, pendingSeal = null;
 const $ = id => document.getElementById(id);
+// Phone fields start with + so people include their country code
+document.addEventListener('focusin', e => { if (e.target.type === 'tel' && !e.target.value) e.target.value = '+'; });
+document.addEventListener('focusout', e => { if (e.target.type === 'tel' && e.target.value.trim() === '+') e.target.value = ''; });
+document.addEventListener('input', e => { if (e.target.type === 'tel' && /^\+\+/.test(e.target.value)) e.target.value = e.target.value.replace(/^\++/, '+'); });
 const show = v => ['vAuth','vEnrol','vRec','vSeal','vCode','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
 async function call(path, opts = {}) {
@@ -224,7 +233,9 @@ $('btnFb').onclick = async () => {
 };
 
 function showEnrol(secret, otpauth) {
-  $('qr').innerHTML = ''; if (window.QRCode) new QRCode($('qr'), { text: otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`, width: 180, height: 180 });
+  // The QR code leaves out the logo address so it stays small enough to scan; a QR failure must never block sign-up
+  const qrText = (otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`).replace(/&image=[^&]*/, '');
+  $('qr').innerHTML = ''; try { if (window.QRCode) new QRCode($('qr'), { text: qrText, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }); } catch (e) { $('qr').textContent = 'Use the button or the setup key below.'; }
   $('totpKey').textContent = secret.match(/.{1,4}/g).join(' ');
   $('otpLink').href = otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`;
   $('copyKey').onclick = e => { e.preventDefault(); navigator.clipboard?.writeText(secret).then(() => { $('copyKey').textContent = 'Copied'; }); };
@@ -333,8 +344,8 @@ $('btnNom').onclick = async () => {
   } catch (x) { flash(x.message); }
 };
 $('btnRules').onclick = async () => {
-  await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, proof_required: $('rProof').value, veto_days: $('rVeto').value, phone: $('rPhone').value });
-  me = await call('/api/me'); renderAll(); flash('Rules saved.', true);
+  try { await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, proof_required: $('rProof').value, veto_days: $('rVeto').value, phone: $('rPhone').value });
+    me = await call('/api/me'); renderAll(); flash('Rules saved.', true); } catch (x) { flash(x.message); }
 };
 $('btnFine').onclick = async () => { await post('/api/me/checkin', {}); me = await call('/api/me'); renderAll(); flash('Checked in. Thank you.', true); };
 

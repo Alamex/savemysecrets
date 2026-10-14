@@ -63,3 +63,5 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:13px}
 .steps p{margin:0}
 @media (min-width:900px){.grid{grid-template-columns:repeat(3,1fr)}}
 .soon{font-family:Inter,system-ui,sans-serif;font-weight:400;font-size:.7em;color:var(--muted);white-space:nowrap}
+
+.logo-icon{width:30px;height:30px;vertical-align:-7px;margin-right:9px;border-radius:7px}

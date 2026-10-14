@@ -70,7 +70,7 @@ function layout(inner) {
   return `<!doctype html><html><body style="margin:0;background:#f5f3ee;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1c2430">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f3ee"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px">
-<tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px">Save My <span style="color:#b08a4a">Secrets</span></td></tr>
+<tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px"><img src="https://savemysecrets.com/icon-192.png" width="36" height="36" alt="" style="vertical-align:middle;border-radius:8px;margin-right:8px">Save My <span style="color:#b08a4a">Secrets</span></td></tr>
 <tr><td style="padding:8px 24px 24px;font-size:16px;line-height:1.55">${inner}</td></tr></table>
 <p style="font-size:12px;color:#6b7280;max-width:560px;line-height:1.5">Save My Secrets is in alpha. Please don't store anything mission critical yet.<br>Questions? Reply to this email or write to savemysecrets@alamex.com</p>
 </td></tr></table></body></html>`;
@@ -117,6 +117,14 @@ async function sendText(env, userId, to, body, channel = 'sms') {
     await logEvent(env, userId, channel, { to, ok: r.ok });
   } else await logEvent(env, userId, `${channel}(dry-run)`, { to, body });
 }
+
+// Phone numbers: international format only (+ country code), spaces and punctuation ignored
+function normPhone(v) {
+  const raw = String(v || '').trim(); if (!raw || raw === '+') return { ok: true, value: null };
+  const d = raw.replace(/[\s().-]/g, '').replace(/^\++/, '+').replace(/^\+?00/, '+');
+  return /^\+[1-9]\d{6,14}$/.test(d) ? { ok: true, value: d } : { ok: false };
+}
+const PHONE_ERR = 'Please enter the mobile number with its country code, starting with + (for example +971 or +44).';
 
 // ---------- security helpers ----------
 function otp6() { const a = new Uint32Array(1); crypto.getRandomValues(a); return String(a[0] % 1000000).padStart(6, '0'); }
@@ -242,7 +250,7 @@ export async function runEscalation(env, origin, at = now()) {
 // ---------- AI interrogation ----------
 const INTERVIEW_SYSTEM = `You are the verification interviewer for ${BRAND}, a digital legacy vault. A person claims to be a nominated contact of an account holder and that the account holder has died or is incapacitated.
 Your job: politely but rigorously establish (1) who the claimant is, (2) their relationship to the account holder, (3) what happened, when and where (date, place, cause if they are willing), (4) who else knows (other family, executor, solicitor), (5) whether a death certificate or other official document exists and when they can provide it.
-Rules: be kind, people may be grieving. Ask ONE or two questions at a time. Probe inconsistencies gently. Never reveal what the vault contains, who the other nominees are, or any detail about the account holder the claimant has not already stated. Never promise release. After about 6 to 10 exchanges, or when you have enough, end with the exact token [[INTERVIEW_COMPLETE]].`;
+Rules: be kind, people may be grieving. Ask ONE question at a time, short and plain. Never ask again for something the claimant has already answered, even partly: build on what they said. If an answer is vague (for example "today"), accept it and move on rather than repeating the question. Probe inconsistencies gently. Never reveal what the vault contains, who the other nominees are, or any detail about the account holder the claimant has not already stated. Never promise release. After about 6 to 10 exchanges, or when you have enough, end with the exact token [[INTERVIEW_COMPLETE]].`;
 
 async function claude(env, system, messages, maxTokens = 600) {
   if (!env.ANTHROPIC_API_KEY) return null;
@@ -313,8 +321,9 @@ async function api(req, env) {
 
   // Step 1 of signup: get a fresh KDF salt so the client can derive keys before registering
   if (p === '/api/register' && m === 'POST') {
-    const { email, name, phone, authKey, kdfSalt } = body;
+    const { email, name, authKey, kdfSalt } = body;
     if (!email || !name || !authKey || !kdfSalt) return err('Missing fields');
+    const ph = normPhone(body.phone); if (!ph.ok) return err(PHONE_ERR); const phone = ph.value;
     if (!(await allow(env, 'reg:' + ip(req), 10, HOUR))) return slowDown();
     const exists = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(email.toLowerCase()).first();
     if (exists) return err('An account with that email already exists');
@@ -327,7 +336,7 @@ async function api(req, env) {
     await env.DB.prepare(`INSERT INTO users (id,email,name,phone,auth_salt,auth_hash,kdf_salt,totp_secret,invite_code,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .bind(id, email.toLowerCase(), name, phone || null, authSalt, await pbkdf2(authKey, authSalt), kdfSalt, secret, code, now()).run();
     const token = await makeSession(env, id, 'enrol', 1);
-    const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}`;
+    const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent(baseUrl(req, env) + '/icon-512.png')}`;
     return json({ token, totpSecret: secret, otpauth });
   }
 
@@ -365,7 +374,7 @@ async function api(req, env) {
       await env.DB.prepare('UPDATE users SET recovery_hashes=?, totp_secret=?, totp_enabled=0 WHERE id=?').bind(JSON.stringify(list.filter(x => x !== h)), secret, u.id).run();
       await logEvent(env, u.id, 'recovery_code_used', '');
       await sendEmail(env, u.id, u.email, `A recovery code was used on your account`, `<p>Hi ${esc(u.name)},</p><p>Someone, hopefully you, logged in with one of your recovery codes and is setting up two-factor login on a new phone.</p><p><b>If this wasn't you, reply to this email straight away.</b></p>`);
-      const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}`;
+      const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent(baseUrl(req, env) + '/icon-512.png')}`;
       return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: secret, otpauth });
     }
     if (!(await totpVerify(u.totp_secret, body.code))) return err('Two-factor code incorrect', 401);
@@ -445,6 +454,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       const gw = Math.max(2, Math.min(12, Number(body.grace_weeks) || 6));
       const pr = ['none', 'nominee_confirm', 'death_certificate'].includes(body.proof_required) ? body.proof_required : 'death_certificate';
       const vd = Math.max(3, Math.min(30, Number(body.veto_days) || 7));
+      const ph = normPhone(body.phone); if (!ph.ok) return err(PHONE_ERR); body.phone = ph.value;
       await env.DB.prepare('UPDATE users SET checkin_days=?, grace_weeks=?, proof_required=?, veto_days=?, phone=COALESCE(?,phone) WHERE id=?')
         .bind(cd, gw, pr, vd, body.phone || null, u.id).run();
       // Saving rules is proof of life too, and the next check-in moves to match the new frequency
@@ -452,8 +462,9 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       return json({ ok: true });
     }
     if (p === '/api/me/nominees' && m === 'POST') {
-      const { name, email, phone, address, relationship, notify_early } = body;
+      const { name, email, address, relationship, notify_early } = body;
       if (!name || !email) return err('Nominee needs at least a name and email');
+      const ph = normPhone(body.phone); if (!ph.ok) return err(PHONE_ERR); const phone = ph.value;
       const id = rid(10);
       await env.DB.prepare('INSERT INTO nominees (id,user_id,name,email,phone,address,relationship,notify_early,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
         .bind(id, u.id, name, email.toLowerCase(), phone || null, address || null, relationship || null, notify_early ? 1 : 0, now()).run();
@@ -471,7 +482,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       const { results: noms } = await env.DB.prepare('SELECT * FROM nominees WHERE user_id=?').bind(u.id).all();
       const nominee = noms.find(n => n.id === body.nomineeId) || noms[0] || null;
       const playing = nominee ? nominee.name : 'a nominee';
-      const first = `Thank you, ${playing.split(' ')[0]}. I'm sorry you're dealing with this. I'll ask a few questions so we can handle this properly and protect ${u.name.split(' ')[0]}'s wishes. To start: what has happened, and when?`;
+      const first = `Thank you, ${playing.split(' ')[0]}. I'm sorry you're dealing with this. I'll ask a few questions so we can handle this properly and protect ${u.name.split(' ')[0]}'s wishes. To start, can you tell me what has happened?`;
       const msgs = (Array.isArray(body.messages) ? body.messages : []).slice(-30)
         .map(x => ({ role: x.role === 'assistant' ? 'assistant' : 'user', content: String(x.content || '').slice(0, 2000) }));
       if (!msgs.length) return json({ reply: first, done: false, playing });
@@ -531,7 +542,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
     const existing = await env.DB.prepare(`SELECT * FROM claims WHERE user_id=? AND claimant_email=? AND status NOT IN ('released','rejected','vetoed')`).bind(u.id, cl.email).first();
     if (existing) return json({ token: existing.token, status: existing.status, message: JSON.parse(existing.transcript || '[]').slice(-1)[0]?.content || '' });
     const id = rid(12), token = rid(32);
-    const first = `Thank you, ${cl.name}. I'm sorry you're dealing with this. I'll ask a few questions so we can handle this properly and protect ${u.name.split(' ')[0]}'s wishes. To start: what has happened, and when?`;
+    const first = `Thank you, ${cl.name}. I'm sorry you're dealing with this. I'll ask a few questions so we can handle this properly and protect ${u.name.split(' ')[0]}'s wishes. To start, can you tell me what has happened?`;
     await env.DB.prepare(`INSERT INTO claims (id,user_id,nominee_id,claimant_id,claimant_email,claimant_name,status,token,transcript,created_at,updated_at) VALUES (?,?,?,?,?,?,'interview',?,?,?,?)`)
       .bind(id, u.id, nominee.id, cl.id, cl.email, cl.name, token, JSON.stringify([{ role: 'assistant', content: first }]), now(), now()).run();
     // Tell the owner straight away, on every channel, and bring their check-in forward
