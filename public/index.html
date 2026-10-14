@@ -12,7 +12,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261014b">
+<link rel="stylesheet" href="/style.css?v=20261015a">
 </head>
 <body>
 <div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
@@ -38,7 +38,7 @@
   <ol class="steps">
     <li><span class="sn">1</span><div><h3>Lock it away</h3><p class="muted">Add personal messages, logins you want to pass on, account details and documents. Everything is encrypted before it leaves your phone or laptop. Log in from any device, with two-factor login as standard.</p></div></li>
     <li><span class="sn">2</span><div><h3>Name your people</h3><p class="muted">Choose who should receive it and add their details, so we can check it's really them. They hear nothing from us until the day it matters.</p></div></li>
-    <li><span class="sn">3</span><div><h3>Set their questions <span class="soon">(being built)</span></h3><p class="muted">Write three questions for each of your nominees, ones only they could answer. Each nominee's answers become their own key to your vault, and we never see them.</p></div></li>
+    <li><span class="sn">3</span><div><h3>Set their questions</h3><p class="muted">Write three questions for each of your nominees, ones only they could answer. Each nominee's answers become their own key to your vault, and we never see them.</p></div></li>
     <li><span class="sn">4</span><div><h3>We check in</h3><p class="muted">Every few months, one tap to say you're fine. Miss it and we follow up with you by email, text and WhatsApp for weeks before anyone else is contacted.</p></div></li>
     <li><span class="sn">5</span><div><h3>Verified hand-over <span class="soon">(being built)</span></h3><p class="muted">Our AI interviews your nominees and checks their passports against the details you gave us. Then come your proof rules, such as a checked death certificate, and one final check that you don't respond. Only then do their answers open your vault, on their own devices.</p></div></li>
   </ol>
@@ -48,7 +48,7 @@
   <h2>Only your nominees can open it.</h2>
   <div class="grid">
     <div class="card"><h3>No cards, no codes</h3><p class="muted">Your nominees don't need a password or a key. Leave a message in your will or a letter telling them to visit savemysecrets.com, and our verification assistant takes it from there.</p></div>
-    <div class="card"><h3>Their answers are the key <span class="soon">(being built)</span></h3><p class="muted">Once nominee questions are live, your vault opens only with answers your nominees know plus our release after checks. Neither works alone, and we never see the answers. So we can't open your vault, and nor could anyone who broke into us.</p></div>
+    <div class="card"><h3>Their answers are the key</h3><p class="muted">Your vault opens only with answers your nominees know plus our release after checks. Neither works alone, and we never see the answers. Once every nominee has questions, we delete our own copy, so we can't open your vault without their answers.</p></div>
     <div class="card"><h3>Who they are, checked <span class="soon">(being built)</span></h3><p class="muted">Before anything is released, we check your nominees are who they say they are: an AI interview and a passport check against the details you gave us. Face matching follows in the beta.</p></div>
   </div>
 </div></section>
@@ -57,16 +57,16 @@
   <h2>Why we can't see your data.</h2>
   <div class="grid">
     <div class="card"><h3>Locked on your device</h3><p class="muted">When you save, your phone or laptop encrypts everything using a key made from your master password. That password never reaches us, so all we receive is encrypted data we can't read.</p></div>
-    <div class="card"><h3>Your nominees' keys, not ours <span class="soon">(being built)</span></h3><p class="muted">Each nominee's copy is locked with a key made from their own answers to your questions. They type and check the answers on their own device, and the answers are never sent to us.</p></div>
+    <div class="card"><h3>Your nominees' keys, not ours</h3><p class="muted">Each nominee's copy is locked with a key made from their own answers to your questions. They type and check the answers on their own device, and the answers are never sent to us.</p></div>
     <div class="card"><h3>Check it yourself</h3><p class="muted">Every line of our code is public on <a href="https://github.com/Alamex/savemysecrets">GitHub</a>, so anyone can confirm that what's in your vault is encrypted before it leaves your device.</p></div>
   </div>
-  <div class="notice">Still being built during the alpha: nominee questions and passport checks come next. Until they're live, we hold the release key ourselves, which is one reason we ask alpha testers not to store anything mission critical.</div>
+  <div class="notice">Still being built during the alpha: passport checks. Until you've set questions for every nominee, we hold a copy of your vault key ourselves. Choose answers nobody could guess or look up: anyone who stole our database could try guessing them.</div>
 </div></section>
 
 <section><div class="wrap narrow" style="max-width:720px">
   <h2>Questions</h2>
-  <details><summary>What if my nominees forget their answers?</summary><p class="muted">Each nominee has their own questions, so if one forgets, another can still open your vault. Each needs two of their three answers, and spelling, capitals and accents don't matter. You can also list other ways they might say it. Once a year we'll ask you to check your questions still make sense. But if none of your nominees can answer, no one can open your vault, including us. That's what keeps it private.</p></details>
-  <details><summary>Can you see what's in my vault?</summary><p class="muted">Your vault is encrypted before it leaves your phone or laptop, and once nominee questions are live, the key to open it is made from answers we never see. We'll also let you see exactly what we store, and publish the code that does the encryption, so you don't have to take our word for it.</p></details>
+  <details><summary>What if my nominees forget their answers?</summary><p class="muted">Each nominee has their own questions, so if one forgets, another can still open your vault. Each needs two of their three answers, and capitals, spaces and accents don't matter. You can also list other ways they might say it. Every check-in reminds you to make sure your questions still make sense. But if none of your nominees can answer, no one can open your vault, including us. That's what keeps it private.</p></details>
+  <details><summary>Can you see what's in my vault?</summary><p class="muted">Your vault is encrypted before it leaves your phone or laptop, and once every nominee has questions, the key to open it is made from answers we never see. We'll also let you see exactly what we store, and publish the code that does the encryption, so you don't have to take our word for it.</p></details>
   <details><summary>What if I'm in hospital or travelling?</summary><p class="muted">You choose how often we check in (monthly to yearly) and how long we keep trying you (2 to 12 weeks). Before anything is released we make one final check that you don't respond, with alerts on every channel. One tap stops everything.</p></details>
   <details><summary>What can I store?</summary><p class="muted">Anything you'd want someone to have if you weren't here: passwords, bank and pension details, where documents are kept, instructions, a letter.</p></details>
   <details><summary>What stops someone pretending to be one of my nominees?</summary><p class="muted">They'd have to pass an AI interview, a passport check against the details you gave us, and your proof rules (such as a checked death certificate), then get past one final check that you don't respond. Even then, without a nominee's answers, the vault stays locked. Every attempt is logged, and repeated wrong answers mean longer waits.</p></details>

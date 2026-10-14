@@ -21,16 +21,16 @@ You can verify this in `public/crypto.js` (all encryption) and `public/app.html`
 
 ## How your nominee gets access
 
-The release design is being finalised during the alpha. **Current alpha behaviour, stated plainly:**
+- **Nominee questions (the default once set).** For each nominee the owner writes three questions. For every pair of answers (any two of three), and every alternative spelling the owner lists, the browser wraps the vault key with a key made from our server share plus the two answers (`PBKDF2-SHA256`, 200,000 iterations per answer, then `SHA-256`). See `buildNomineeKeys` in `public/crypto.js`. The answers never leave the owner's or nominee's device.
+- **Once every nominee has questions, we delete our own openable copy.** From then on we cannot open the vault without the nominees' answers.
+- **Release:** after the checks, the nominee sees the questions and types answers on their own device. Their browser sends us a proof derived from the answers; if it matches, we release our share and the matching locked copy, and the vault is decrypted in their browser. Wrong answers get escalating waits: two free tries, then an hour, a day, then a week each time. Attempts are counted atomically, so parallel requests can't skip the waits.
+- **At rest:** our server share and the answer verifiers are protected with a key held only as a Worker secret, so a copy of the database alone is not enough to test guesses.
 
-- In the default mode, the vault key is also wrapped with a release key that the service holds. That means **during the alpha we could technically open a vault**. We only release after the checks below, but it is a policy promise, not a cryptographic one. This is one reason alpha testers are asked not to store anything mission critical.
-- An optional mode adds a printed code held by the nominee. With it, neither we nor the nominee can open the vault alone.
-
-**The design we are building next** (see the homepage):
-
-- The owner writes three questions only their nominee could answer. The nominee's copy of the vault key is locked with a key made from those answers plus our release share. Any two correct answers unlock it.
-- Answers are typed and checked on the nominee's own device and never sent to us. Without them, nobody can open the vault, including us. If the nominee can't answer, the vault cannot be recovered. That is deliberate.
-- Release is fully automated, with no human review. Before our share is released, the nominee must pass an AI interview, a passport check against details the owner provided, the owner's proof rules (such as an automatically checked death certificate), and one final check that the owner doesn't respond. Face matching follows in the beta.
+**Stated plainly, the limits:**
+- Answers are words, not long random codes. Anyone with both our database and our Worker secret (including us, in theory) could try guessing them offline. Choose answers nobody could guess or look up.
+- Until every nominee has questions, we hold a copy we could open (standard mode). An optional printed-code mode also exists.
+- The website delivers the encryption code, so you are trusting the code we serve. It is published here so it can be checked.
+- If none of a nominee's answers can be recalled, that nominee cannot open the vault. That is deliberate.
 
 ## How a nominee asks for access
 

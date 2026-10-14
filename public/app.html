@@ -10,7 +10,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261014b">
+<link rel="stylesheet" href="/style.css?v=20261015a">
 <script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
@@ -116,7 +116,16 @@
   </div>
 
   <div id="tNoms" class="hide">
+    <div id="qBanner" class="notice hide"></div>
     <div id="nomList"></div>
+    <div id="qEdit" class="card hide" style="margin:14px 0">
+      <h3>Questions for <span id="qWho"></span></h3>
+      <p class="small muted">Write three questions only they could answer. Their answers become their key to your vault, and we never see them. Any two correct answers will open it. Avoid anything on social media, birthdays and pets' names.</p>
+      <div id="qFields"></div>
+      <p class="small muted">Capitals, spaces, accents and punctuation never matter. Add other ways they might say an answer, separated by commas. Pick answers nobody could guess or look up online.</p>
+      <div class="row"><button class="accent" id="btnQSave">Lock with these answers</button><button class="ghost" id="btnQCancel">Cancel</button></div>
+      <p id="qMsg" class="small"></p>
+    </div>
     <details open><summary>Add a nominee</summary>
       <label>Full name</label><input id="nName">
       <label>Email</label><input id="nEmail" type="email">
@@ -218,7 +227,7 @@ function showTryResult(d) {
     ${(a.red_flags || []).length ? '<p class="small bad">Red flags: ' + a.red_flags.map(esc).join('; ') + '</p>' : ''}
     <h3>In a real request, what happens next</h3>
     <p class="small">1. The moment they started, you'd get an urgent email, text and WhatsApp. One tap from you closes the request.<br>
-    2. ${esc(proof)}<br>3. One final check that you don't respond: ${d.vetoDays} days of alarms to you.<br>4. Only then would they open your vault, on their own device.</p></div>`;
+    2. ${esc(proof)}<br>3. One final check that you don't respond: ${d.vetoDays} days of alarms to you.<br>4. Only then would they answer the questions you set for them, on their own device, to open your vault.</p></div>`;
   $('tryResult').classList.remove('hide');
 }
 $('btnTry').onclick = async () => { tryMsgs = []; $('tryChat').innerHTML = ''; $('tryResult').classList.add('hide'); $('tryForm').classList.remove('hide');
@@ -312,16 +321,44 @@ function renderAll() {
     veto_window: '<b class="bad">Your vault is about to be released.</b> Tap below to stop it.', released: 'This vault has been released.' }[me.state] || me.state;
   const claimText = me.openClaim ? '<br><b class="bad">One of your nominees has asked for your vault.</b> If you\'re fine, tap below and the request is closed.' : '';
   const recText = me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
-  $('statusLine').innerHTML = `${stateText}${claimText}${recText}<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'No card or code needed'}</span>`;
+  $('statusLine').innerHTML = `${stateText}${claimText}${recText}<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${!me.hasRelease ? 'Only your nominees\' answers can open it' : me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length}</span>`;
   $('letter').value = vault.letter || '';
   $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b><span class="small muted">${esc(it.type)}</span>
     <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
-  $('nomList').innerHTML = me.nominees.map(n => `<div class="item"><b>${esc(n.name)}</b><span class="small muted">${esc(n.relationship)} · ${esc(n.email)} · ${esc(n.phone)}</span>
-    <p></p><button class="ghost small" onclick="delNom('${n.id}')">Remove</button></div>`).join('') || '<p class="muted">No nominees yet. Add at least one.</p>';
+  $('nomList').innerHTML = me.nominees.map(n => `<div class="item"><b>${esc(n.name)}</b><span class="small muted">${[n.relationship, n.email, n.phone].filter(Boolean).map(esc).join(' · ')}</span>
+    <p class="small ${n.hasQuestions ? 'ok' : 'bad'}" style="margin:6px 0">${n.hasQuestions ? 'Questions set: ' + n.questions.map(esc).join(' · ') : (me.hasRelease ? 'No questions yet' : 'No questions yet: they cannot open your vault until you add some')}</p>
+    <div class="row"><button class="accent small" onclick="editQ('${n.id}')">${n.hasQuestions ? 'Change questions' : 'Set their questions'}</button><button class="ghost small" onclick="delNom('${n.id}')">Remove</button></div></div>`).join('') || '<p class="muted">No nominees yet. Add at least one.</p>';
+  const set = me.nominees.filter(n => n.hasQuestions).length, total = me.nominees.length;
+  $('qBanner').classList.toggle('hide', !total);
+  $('qBanner').innerHTML = !me.hasRelease ? (set === total ? '<b>We can no longer open your vault without your nominees\' answers.</b> Every nominee has their own questions, and we never see the answers. Choose answers nobody could guess or look up.'
+      : `<b>We can no longer open your vault without your nominees\' answers.</b> ${total - set} nominee${total - set === 1 ? ' has' : 's have'} no questions yet and can't open it until you add some.`)
+    : `<b>Questions set for ${set} of ${total} nominee${total === 1 ? '' : 's'}.</b> Until every nominee has questions, we hold a copy we could open. Once they all do, we delete it.`;
   $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks; $('rProof').value = me.policy.proof_required;
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
 window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
+let qFor = null;
+window.editQ = id => {
+  const n = me.nominees.find(x => x.id === id); qFor = id; $('qWho').textContent = n.name; $('qMsg').textContent = '';
+  const qs = n.questions || ['', '', ''];
+  $('qFields').innerHTML = [0, 1, 2].map(i => `<div style="margin:12px 0"><label>Question ${i + 1}</label><input id="qq${i}" value="${esc(qs[i] || '')}" placeholder="${['Where did we first live together?', 'What did we call the old car?', 'Who sat next to us at our wedding?'][i]}">
+    <label>Answer</label><input id="qa${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Other ways they might say it (optional, up to 4)</label><input id="qx${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></div>`).join('');
+  $('qEdit').classList.remove('hide'); $('qEdit').scrollIntoView({ behavior: 'smooth' });
+};
+$('btnQCancel').onclick = () => { $('qEdit').classList.add('hide'); qFor = null; };
+$('btnQSave').onclick = async () => {
+  const m = $('qMsg'), btn = $('btnQSave');
+  const qs = [0, 1, 2].map(i => ({ q: $('qq' + i).value, answer: $('qa' + i).value, alts: $('qx' + i).value.split(',').map(x => x.trim()).filter(Boolean) }));
+  btn.disabled = true; m.className = 'small'; m.textContent = 'Locking your vault with these answers. This takes a few seconds...';
+  try {
+    const { serverShare } = await call('/api/me/share');
+    const keys = await SMS.buildNomineeKeys(K, serverShare, qs);
+    const d = await post(`/api/me/nominees/${qFor}/questions`, keys);
+    $('qEdit').classList.add('hide'); me = await call('/api/me'); renderAll();
+    flash(d.removedServerCopy ? 'Done. Every nominee now has questions, so we have deleted our copy: your vault now opens only with their answers.' : 'Questions saved.', true);
+  } catch (x) { m.className = 'small bad'; m.textContent = x.message; }
+  btn.disabled = false;
+};
 window.delNom = async id => { await call('/api/me/nominees/' + id, { method: 'DELETE' }); me = await call('/api/me'); renderAll(); };
 // Keep the letter in memory as it's typed, so re-rendering after other edits never wipes it
 let dirty = false;
@@ -339,8 +376,8 @@ $('btnSave').onclick = async () => {
 };
 $('btnNom').onclick = async () => {
   try {
-    await post('/api/me/nominees', { name: $('nName').value, email: $('nEmail').value, phone: $('nPhone').value, address: $('nAddr').value, relationship: $('nRel').value, notify_early: $('nEarly').checked });
-    ['nName','nEmail','nPhone','nAddr','nRel'].forEach(x => $(x).value = ''); me = await call('/api/me'); renderAll(); flash('Nominee added.', true);
+    const d = await post('/api/me/nominees', { name: $('nName').value, email: $('nEmail').value, phone: $('nPhone').value, address: $('nAddr').value, relationship: $('nRel').value, notify_early: $('nEarly').checked });
+    ['nName','nEmail','nPhone','nAddr','nRel'].forEach(x => $(x).value = ''); me = await call('/api/me'); renderAll(); flash('Nominee added. Now set their three questions.', true); editQ(d.id);
   } catch (x) { flash(x.message); }
 };
 $('btnRules').onclick = async () => {

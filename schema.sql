@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS claims (
   transcript TEXT DEFAULT '[]',
   ai_assessment TEXT,
   doc_key TEXT, doc_analysis TEXT,
-  admin_note TEXT,
+  admin_note TEXT, unlock_fails INTEGER DEFAULT 0, unlock_after INTEGER,
   created_at INTEGER, updated_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS events (
@@ -79,3 +79,4 @@ CREATE INDEX IF NOT EXISTS idx_claims_user ON claims(user_id);
 CREATE INDEX IF NOT EXISTS idx_claimants_token ON claimants(token);
 CREATE INDEX IF NOT EXISTS idx_claims_token ON claims(token);
 CREATE TABLE IF NOT EXISTS feedback ( id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, email TEXT, page TEXT, text TEXT NOT NULL, created_at INTEGER );
+CREATE TABLE IF NOT EXISTS nominee_keys ( nominee_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, questions TEXT NOT NULL, salts TEXT NOT NULL, wraps TEXT NOT NULL, verifiers TEXT NOT NULL, created_at INTEGER );

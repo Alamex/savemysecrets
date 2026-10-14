@@ -92,7 +92,7 @@ ok(back.items[0].body === contents.items[0].body, 'owner decrypts vault');
 ok((await call('/api/me/kit', { token: tok })).s === 404, 'backup download removed');
 
 // escalation timeline
-const t0 = Date.now(); const esc = async at => (await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at } })).d.filter(x => x[0] === email).map(x => x[1]);
+const t0 = Date.now(); const esc = async at => (await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at, emails: [email] } })).d.filter(x => x[0] === email).map(x => x[1]);
 ok((await esc(t0 + 10 * DAY)).length === 0, 'nothing before due');
 ok((await esc(t0 + 91 * DAY))[0] === 'first reminder', 'first reminder at 91d');
 const steps = [];
@@ -179,7 +179,7 @@ st = await interview(ct2, sibling('Bro', 'Alive Owner'));
 ok(st.status === 'review', 'proof=none goes straight to review');
 const cid2 = (await call('/api/admin/claims', { token: ADM })).d.find(c => c.owner_email === email2).id;
 await call('/api/admin/decide', { method: 'POST', token: ADM, body: { claimId: cid2, decision: 'approve' } });
-const alarm = (await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 1000 } })).d;
+const alarm = (await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 1000, emails: [email2] } })).d;
 const evs = (await call('/api/admin/events', { token: ADM })).d.filter(e => e.user_id === uid2 && e.detail.includes('/api/checkin?'));
 const link = JSON.parse(evs[0].detail).html.match(/href="([^"]+)"/)[1].replace(/&amp;/g, '&');
 r = await call(link.replace(/^https?:\/\/[^/]+/, '')); ok(r.s === 302, 'email check-in link works');
@@ -213,6 +213,52 @@ ok(r.s === 200 && r.d.needsEnrol && r.d.totpSecret !== sec3, 'recovery code logs
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); ok(r.s === 200 && r.d.recoveryCodes.length === 10, 're-enrolled with fresh recovery codes');
 ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k2.authKey, recovery: rec3[1] } })).s === 401, 'old recovery codes replaced');
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes('recovery code was used')), 'owner emailed when a recovery code is used');
+
+ok((await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 90 * DAY } })).s === 400, 'a simulated future run must name its test accounts');
+// Scenario 4: nominee questions. We delete our openable copy once every nominee has questions; answers open it on the nominee's device
+const email4 = `q+${Date.now()}@example.com`;
+r = await call('/api/register', { method: 'POST', body: { email: email4, name: 'Quentin Owner', authKey: k2.authKey, kdfSalt, inviteCode: 'TESTCONF' } }); const sec4 = r.d.totpSecret;
+r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(sec4) } }); const tok4 = r.d.token;
+const v4 = await SMS.createVault(k2.ownerKey, { letter: 'For Ana', items: [{ title: 'Deeds', body: 'With the solicitor' }] }, 'standard');
+await call('/api/me/vault', { method: 'POST', token: tok4, body: v4.upload });
+await call('/api/me/policy', { method: 'POST', token: tok4, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 2, veto_days: 3 } });
+const nA = (await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Ana Nominee', email: 'qa@example.com', relationship: 'wife' } })).d.id;
+const nB = (await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Ben Nominee', email: 'qb@example.com', relationship: 'son' } })).d.id;
+const share4 = (await call('/api/me/share', { token: tok4 })).d.serverShare;
+const keysA = await SMS.buildNomineeKeys(v4.K, share4, [{ q: 'Where did we marry?', answer: 'Marbella', alts: ['Puerto Banús'] }, { q: 'Old boat?', answer: 'Sea Biscuit' }, { q: 'First landlord?', answer: 'Mrs Okafor', alts: ['Okafor'] }]);
+r = await call(`/api/me/nominees/${nA}/questions`, { method: 'POST', token: tok4, body: keysA }); ok(r.s === 200 && !r.d.removedServerCopy, 'questions saved for first nominee');
+ok(!JSON.stringify(keysA).toLowerCase().includes('marbella') && !JSON.stringify(keysA).toLowerCase().includes('okafor'), 'no answers are ever sent to us');
+ok((await call('/api/me', { token: tok4 })).d.hasRelease === true, 'our copy kept while a nominee has no questions');
+const keysB = await SMS.buildNomineeKeys(v4.K, share4, [{ q: 'Q1', answer: 'alpha one' }, { q: 'Q2', answer: 'bravo two' }, { q: 'Q3', answer: 'charlie three' }]);
+r = await call(`/api/me/nominees/${nB}/questions`, { method: 'POST', token: tok4, body: keysB }); ok(r.d.removedServerCopy === true, 'our copy deleted once every nominee has questions');
+const me4 = (await call('/api/me', { token: tok4 })).d; ok(me4.hasRelease === false && me4.nominees.every(n => n.hasQuestions), 'owner sees we can no longer open it');
+ok((await call('/api/me/nominees/' + nA + '/questions', { method: 'POST', token: tok4, body: { questions: ['a'], salts: [], wraps: {}, verifiers: {} } })).s === 400, 'malformed questions refused');
+await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Cal Nominee', email: 'qc@example.com' } });
+ok((await call('/api/claim/find', { method: 'POST', token: await claimant('Cal Nominee', 'qc@example.com'), body: { ownerEmail: email4 } })).s === 404, 'nominee without questions cannot claim once our copy is gone');
+const ta = await claimant('Ana Nominee', 'qa@example.com');
+const cta = (await call('/api/claim/find', { method: 'POST', token: ta, body: { ownerEmail: email4 } })).d.token;
+await interview(cta, sibling('Ana', 'Quentin Owner'));
+const cidA = (await call('/api/admin/claims', { token: ADM })).d.find(c => c.owner_email === email4).id;
+await call('/api/admin/decide', { method: 'POST', token: ADM, body: { claimId: cidA, decision: 'approve' } });
+const end4 = (await call('/api/claim/status', { token: cta })).d.vetoEndsAt;
+ok((await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: end4 + 1000, emails: [email4] } })).d.some(x => x[0] === email4 && x[1] === 'released'), 'questions vault released after final check');
+const pk = (await call('/api/claim/status', { token: cta })).d.package;
+ok(pk.releaseMode === 'questions' && pk.questions.length === 3 && !pk.serverShare && !pk.vault, 'release shows questions only, nothing that opens the vault');
+let pr = await SMS.answerProofs(pk.salts, ['Paris', 'Titanic', 'Smith']);
+r = await call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs: pr.proofs } }); ok(r.s === 401 && !r.d.serverShare, 'wrong answers refused');
+pr = await SMS.answerProofs(pk.salts, ['puerto banus', 'no idea', 'the OKAFOR']);
+r = await call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs: pr.proofs } });
+ok(r.s === 200 && r.d.pair === '02', 'two of three answers accepted (alternative spelling, accents, capitals)');
+const KA = await SMS.unlockWithAnswers(r.d.serverShare, r.d.wrapped, pr.keys[r.d.pair]);
+ok((await SMS.decVault(KA, r.d.vault)).letter === 'For Ana', 'nominee opens the vault with their answers');
+const burst = await Promise.all(Array.from({ length: 10 }, () => call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs: { '01': 'a'.repeat(64) } } })));
+ok(burst.filter(x => x.s === 401).length === 3 && burst.filter(x => x.s === 429).length === 7, 'ten wrong tries at once: only three get checked, the rest must wait');
+ok(burst.some(x => x.d.retryAt > Date.now() + 3500000), 'third wrong try means an hour wait');
+ok((await call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs: pr.proofs } })).s === 429, 'even right answers wait until the hour is up');
+// The owner turns out to be alive and logs in: the release is withdrawn
+r = await call('/api/login', { method: 'POST', body: { email: email4, authKey: k2.authKey, code: totp(sec4) } });
+ok(r.s === 200 && !(await call('/api/claim/status', { token: cta })).d.package, 'owner logs in after release: nothing more is handed out');
+ok((await call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs: pr.proofs } })).s === 403, 'owner alive: answers no longer unlock anything');
 
 // Rate limit: a 4th code request for the same email within the hour is refused
 for (let i = 0; i < 3; i++) await call('/api/claimant/start', { method: 'POST', body: { name: 'Spam', email: 'spam@example.com' } });

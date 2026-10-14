@@ -34,6 +34,17 @@ await page.click('[data-t=noms]'); await page.fill('#nName', 'Sam Nominee'); awa
 await page.waitForSelector('#nomList .item'); ok((await page.textContent('#nomList')).includes('Sam Nominee'), 'nominee added');
 await page.fill('#nName', 'Kim Nominee'); await page.fill('#nEmail', 'kim@example.com'); await page.click('#btnNom'); await page.waitForTimeout(1500);
 ok((await page.$$('#nomList .item')).length === 2, 'second nominee added');
+// Questions for each nominee; once both have them we delete our copy
+ok(await page.isVisible('#qEdit'), 'question form opens after adding a nominee');
+for (const [who, ans] of [['Sam Nominee', ['Marbella', 'Sea Biscuit', 'Mrs Okafor']], ['Kim Nominee', ['Rome', 'Bluebell', 'Mr Jones']]]) {
+  await page.locator('#nomList .item', { hasText: who }).locator('button', { hasText: /questions/ }).click();
+  for (let i = 0; i < 3; i++) { await page.fill('#qq' + i, `Question ${i + 1} for ${who}?`); await page.fill('#qa' + i, ans[i]); }
+  await page.fill('#qx0', 'Puerto Banus'); await page.click('#btnQSave');
+  await page.waitForSelector('#qEdit.hide', { state: 'attached', timeout: 60000 });
+}
+await page.waitForTimeout(800); await shot('2a-questions');
+ok((await page.textContent('#qBanner')).includes('We can no longer open your vault'), 'banner confirms we can no longer open the vault');
+ok((await page.textContent('#nomList')).split('Questions set').length === 3, 'both nominees show questions set');
 // Rehearsal: play a nominee against the interviewer
 await page.click('[data-t=try]'); await page.selectOption('#tryWho', { label: 'Sam Nominee (brother)' }); await page.click('#btnTry');
 await page.waitForSelector('#tryChat .bubble'); ok((await page.textContent('#tryChat')).includes('what has happened'), 'rehearsal starts with the first question');

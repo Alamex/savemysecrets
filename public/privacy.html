@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261014b">
+<link rel="stylesheet" href="/style.css?v=20261015a">
 </head>
 <body>
 <div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
@@ -26,7 +26,7 @@
 
 <h2>What we can't read</h2>
 <p>Everything you put in your vault (personal messages, final wishes, passwords, account details and documents) is encrypted in your browser before it is sent to us. We store only the encrypted version. Your master password never leaves your device.</p>
-<div class="notice"><b>Alpha, stated plainly:</b> in the default setting, we also hold a release key so we can pass your vault to your nominees. That means during the alpha we could technically open a vault. We only use it after the release checks, but it is a promise, not a technical guarantee. Nominee questions, which remove our ability to open vaults, are being built. You can check all of this in our <a href="https://github.com/Alamex/savemysecrets">public source code</a>.</div>
+<div class="notice"><b>Alpha, stated plainly:</b> until you have set questions for every one of your nominees, we also hold a release key so we can pass your vault on. Until then we could technically open your vault: we only use it after the release checks, but that is a promise, not a technical guarantee. Once every nominee has questions, we delete that key and can only open your vault with your nominees' answers, which we never see. Because answers are words rather than long random codes, someone who stole our database could try guessing them, so choose answers nobody could guess or look up. You can check all of this in our <a href="https://github.com/Alamex/savemysecrets">public source code</a>.</div>
 
 <h2>What we can read, and why</h2>
 <ul>

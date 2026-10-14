@@ -126,6 +126,30 @@ function normPhone(v) {
 }
 const PHONE_ERR = 'Please enter the mobile number with its country code, starting with + (for example +971 or +44).';
 
+// ---------- at-rest protection ----------
+// The server share S and the answer verifiers are protected with a key held only as a Worker secret, so a copy of
+// the database alone is not enough to test guesses at nominees' answers. (Anyone with the secret as well still could.)
+async function atRestKey(env, purpose) {
+  if (!env.APP_SECRET) throw new Error('APP_SECRET not set');
+  const raw = await crypto.subtle.digest('SHA-256', enc.encode(purpose + '|' + env.APP_SECRET));
+  return purpose === 'share' ? crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt'])
+    : crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+}
+async function sealShare(env, plainB64) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await atRestKey(env, 'share'), enc.encode(plainB64)));
+  const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12); return 'enc1:' + b64(out);
+}
+async function openShare(env, stored) {
+  if (!stored || !stored.startsWith('enc1:')) return stored; // older rows are plain until re-saved
+  const u = unb64(stored.slice(5));
+  return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, await atRestKey(env, 'share'), u.slice(12)));
+}
+async function pepper(env, verifierHex) {
+  const sig = new Uint8Array(await crypto.subtle.sign('HMAC', await atRestKey(env, 'verifier'), enc.encode(verifierHex)));
+  return [...sig].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
 // ---------- security helpers ----------
 function otp6() { const a = new Uint32Array(1); crypto.getRandomValues(a); return String(a[0] % 1000000).padStart(6, '0'); }
 // Fixed-window rate limit. Returns true if this hit is allowed.
@@ -159,6 +183,19 @@ async function makeSession(env, userId, stage, hours = 12) {
     .bind(token, userId, stage, now() + hours * 3600000).run();
   return token;
 }
+// Once every nominee has questions, we delete our own openable copy (standard mode only: in printed-code mode our copy
+// already needs the owner's code, so it stays as a second route). From then on we can't open the vault without answers.
+async function maybeDropServerCopy(env, u) {
+  const left = await env.DB.prepare('SELECT COUNT(*) AS c FROM nominees n LEFT JOIN nominee_keys k ON k.nominee_id=n.id WHERE n.user_id=? AND k.nominee_id IS NULL').bind(u.id).first();
+  const total = await env.DB.prepare('SELECT COUNT(*) AS c FROM nominees WHERE user_id=?').bind(u.id).first();
+  let removed = false;
+  if (total.c > 0 && !left.c && u.wrapped_release && u.release_mode === 'standard') {
+    await env.DB.prepare(`UPDATE users SET wrapped_release=NULL, release_mode='questions' WHERE id=?`).bind(u.id).run(); removed = true;
+    await logEvent(env, u.id, 'server_copy_deleted', '');
+  }
+  return { left, removed };
+}
+
 async function auth(req, env, stage = 'full') {
   const t = (req.headers.get('authorization') || '').replace('Bearer ', '');
   if (!t) return null;
@@ -190,8 +227,9 @@ async function openClaims(env, userId) {
 }
 
 // ---------- the escalation state machine (runs daily from cron, also callable by admin) ----------
-export async function runEscalation(env, origin, at = now()) {
-  const { results: users } = await env.DB.prepare(`SELECT * FROM users WHERE state IN ('active','overdue','nominees_contacted','veto_window') AND wrapped_release IS NOT NULL`).all();
+export async function runEscalation(env, origin, at = now(), onlyEmails = null) {
+  let { results: users } = await env.DB.prepare(`SELECT * FROM users WHERE state IN ('active','overdue','nominees_contacted','veto_window') AND vault_ct IS NOT NULL`).all();
+  if (onlyEmails) users = users.filter(u => onlyEmails.includes(u.email));
   const out = [];
   for (const u of users) {
     const issued = at;
@@ -199,7 +237,9 @@ export async function runEscalation(env, origin, at = now()) {
     const btn = button(link, "Yes, I'm fine");
 
     if (u.state === 'active' && at >= u.next_checkin_at) {
-      await sendEmail(env, u.id, u.email, `Quick check-in: are you OK?`, `<p>Hi ${esc(u.name)},</p><p>It's time for your regular check-in. One tap and we'll see you next time.</p>${btn}<p style="color:#6b7280;font-size:14px">If we don't hear from you, we'll follow up by email, text and WhatsApp for ${u.grace_weeks} weeks before anyone else is contacted. Logging in also counts.</p>`);
+      const noQ = await env.DB.prepare('SELECT n.name FROM nominees n LEFT JOIN nominee_keys k ON k.nominee_id=n.id WHERE n.user_id=? AND k.nominee_id IS NULL').bind(u.id).all();
+      const missing = noQ.results.length ? `<p><b>${noQ.results.map(n => esc(n.name)).join(', ')} ${noQ.results.length === 1 ? 'has' : 'have'} no questions yet.</b> ${u.wrapped_release ? 'Until every nominee has questions, we hold a copy of your vault key.' : "They can't open your vault until you add some."}</p>` : '';
+      await sendEmail(env, u.id, u.email, `Quick check-in: are you OK?`, `<p>Hi ${esc(u.name)},</p><p>It's time for your regular check-in. One tap and we'll see you next time.</p>${btn}<p style="color:#6b7280;font-size:14px">While you're here, it's worth checking your nominees' questions still make sense, and that they could still answer them.</p>${missing}<p style="color:#6b7280;font-size:14px">If we don't hear from you, we'll follow up by email, text and WhatsApp for ${u.grace_weeks} weeks before anyone else is contacted. Logging in also counts.</p>`);
       await env.DB.prepare(`UPDATE users SET state='overdue', overdue_since=?, last_reminder_at=?, reminders_sent=1 WHERE id=?`).bind(at, at, u.id).run();
       out.push([u.email, 'first reminder']);
     } else if (u.state === 'overdue' && at - u.last_reminder_at >= 7 * DAY) {
@@ -418,7 +458,10 @@ async function api(req, env) {
     if (!u) return err('Please log in', 401);
 
     if (p === '/api/me' && m === 'GET') {
-      const { results: nominees } = await env.DB.prepare('SELECT * FROM nominees WHERE user_id=? ORDER BY created_at').bind(u.id).all();
+      // Older accounts: protect the server share at rest the first time we see it
+      if (u.server_share && !u.server_share.startsWith('enc1:')) await env.DB.prepare('UPDATE users SET server_share=? WHERE id=?').bind(await sealShare(env, u.server_share), u.id).run();
+      const { results: nominees } = await env.DB.prepare(`SELECT n.*, k.questions AS questions FROM nominees n LEFT JOIN nominee_keys k ON k.nominee_id=n.id WHERE n.user_id=? ORDER BY n.created_at`).bind(u.id).all();
+      for (const n of nominees) { n.questions = n.questions ? JSON.parse(n.questions) : null; n.hasQuestions = !!n.questions; }
       return json({
         name: u.name, email: u.email, phone: u.phone, kdfSalt: u.kdf_salt,
         vault: u.vault_ct, wrappedOwner: u.wrapped_owner, hasRelease: !!u.wrapped_release, releaseMode: u.release_mode,
@@ -433,7 +476,7 @@ async function api(req, env) {
       if (!vault || !wrappedOwner) return err('Missing vault');
       if (wrappedRelease && serverShare) {
         await env.DB.prepare('UPDATE users SET vault_ct=?, wrapped_owner=?, wrapped_release=?, server_share=?, release_mode=? WHERE id=?')
-          .bind(vault, wrappedOwner, wrappedRelease, serverShare, releaseMode === 'standard' ? 'standard' : 'sovereign', u.id).run();
+          .bind(vault, wrappedOwner, wrappedRelease, await sealShare(env, serverShare), releaseMode === 'standard' ? 'standard' : 'sovereign', u.id).run();
         if (!u.next_checkin_at) {
           await resetCheckin(env, u, 'vault sealed');
           const next = new Date(now() + u.checkin_days * DAY).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -474,8 +517,30 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
     }
     if (p.startsWith('/api/me/nominees/') && m === 'DELETE') {
       await env.DB.prepare('DELETE FROM nominees WHERE id=? AND user_id=?').bind(p.split('/').pop(), u.id).run();
+      await env.DB.prepare('DELETE FROM nominee_keys WHERE nominee_id=? AND user_id=?').bind(p.split('/').pop(), u.id).run();
+      await maybeDropServerCopy(env, u);
       return json({ ok: true });
     }
+    // Nominee questions. The browser builds the locked copies; we store questions, salts, locked copies and verifiers, never answers.
+    if (p === '/api/me/share' && m === 'GET') return json({ serverShare: await openShare(env, u.server_share) });
+    if (/^\/api\/me\/nominees\/[^/]+\/questions$/.test(p) && m === 'POST') {
+      const nid = p.split('/')[4];
+      const n = await env.DB.prepare('SELECT id FROM nominees WHERE id=? AND user_id=?').bind(nid, u.id).first();
+      if (!n) return err('Nominee not found', 404);
+      const { questions, salts, wraps, verifiers } = body;
+      const pairsOk = ['01', '02', '12'].every(k => Array.isArray(wraps?.[k]) && Array.isArray(verifiers?.[k]) && wraps[k].length >= 1 && wraps[k].length <= 25 && wraps[k].length === verifiers[k].length
+        && wraps[k].every(w => typeof w === 'string' && w.length < 200) && verifiers[k].every(v => /^[0-9a-f]{64}$/.test(v)));
+      if (!Array.isArray(questions) || questions.length !== 3 || questions.some(q => typeof q !== 'string' || !q.trim() || q.length > 300)
+        || !Array.isArray(salts) || salts.length !== 3 || !pairsOk) return err('Those questions could not be saved. Please try again.');
+      await env.DB.prepare(`INSERT INTO nominee_keys (nominee_id, user_id, questions, salts, wraps, verifiers, created_at) VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(nominee_id) DO UPDATE SET questions=excluded.questions, salts=excluded.salts, wraps=excluded.wraps, verifiers=excluded.verifiers, created_at=excluded.created_at`)
+        .bind(nid, u.id, JSON.stringify(questions.map(q => q.trim())), JSON.stringify(salts), JSON.stringify(wraps),
+          JSON.stringify(Object.fromEntries(await Promise.all(Object.entries(verifiers).map(async ([k, list]) => [k, await Promise.all(list.map(v => pepper(env, v)))])))), now()).run();
+      const { left, removed } = await maybeDropServerCopy(env, u);
+      await logEvent(env, u.id, 'nominee_questions_set', { nominee: nid, removedServerCopy: removed });
+      return json({ ok: true, allSet: !left.c, removedServerCopy: removed });
+    }
+
     // Rehearsal: the owner plays one of their nominees against the real interviewer. Nothing is stored or sent.
     if (p === '/api/me/rehearse' && m === 'POST') {
       if (!(await allow(env, 'reh:' + u.id, 60, HOUR))) return slowDown();
@@ -538,7 +603,8 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
     // A nominee coming back after release (new device, closed tab) picks up their released claim
     const done = u && nominee && await env.DB.prepare(`SELECT token FROM claims WHERE user_id=? AND claimant_email=? AND status='released'`).bind(u.id, cl.email).first();
     if (done) return json({ token: done.token, status: 'released', message: '' });
-    if (!u || !nominee || u.state === 'released' || !u.wrapped_release) return err('We couldn\'t match those details. Check the email address they used with us, and that they named you with this email address.', 404);
+    const nkeys = nominee && await env.DB.prepare('SELECT nominee_id FROM nominee_keys WHERE nominee_id=?').bind(nominee.id).first();
+    if (!u || !nominee || u.state === 'released' || !u.vault_ct || (!u.wrapped_release && !nkeys)) return err('We couldn\'t match those details. Check the email address they used with us, and that they named you with this email address.', 404);
     const existing = await env.DB.prepare(`SELECT * FROM claims WHERE user_id=? AND claimant_email=? AND status NOT IN ('released','rejected','vetoed')`).bind(u.id, cl.email).first();
     if (existing) return json({ token: existing.token, status: existing.status, message: JSON.parse(existing.transcript || '[]').slice(-1)[0]?.content || '' });
     const id = rid(12), token = rid(32);
@@ -574,6 +640,8 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       let reply = await claude(env, sys, tr.map(x => ({ role: x.role, content: x.content })));
       if (reply === null) reply = tr.filter(x => x.role === 'user').length >= 3 ? 'Thank you. That is everything I need for now. [[INTERVIEW_COMPLETE]]'
         : ['When and where did this happen?', 'Who else in the family, or which solicitor or executor, is involved?', 'Is a death certificate available, and when could you upload it?'][tr.filter(x => x.role === 'user').length - 1];
+      // The interview always ends: after 15 answers the assessment decides, not an endless conversation
+      if (tr.filter(x => x.role === 'user').length >= 15 && !reply.includes('[[INTERVIEW_COMPLETE]]')) reply += '\n\nThank you, that is everything I can ask for now. [[INTERVIEW_COMPLETE]]';
       const done = reply.includes('[[INTERVIEW_COMPLETE]]');
       reply = reply.replace('[[INTERVIEW_COMPLETE]]', '').trim();
       tr.push({ role: 'assistant', content: reply });
@@ -602,11 +670,40 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       await env.DB.prepare(`UPDATE claims SET doc_key=?, doc_analysis=?, status='review', updated_at=? WHERE id=?`).bind(key, JSON.stringify(analysis), now(), c.id).run();
       return json({ ok: true, status: 'review' });
     }
+    if (p === '/api/claim/unlock' && m === 'POST') {
+      if (c.status !== 'released' || u.state !== 'released') return err('Not available', 403);
+      const k = c.nominee_id && await env.DB.prepare('SELECT * FROM nominee_keys WHERE nominee_id=?').bind(c.nominee_id).first();
+      if (!k) return err('No questions were set for you', 400);
+      // Use up the attempt atomically before checking, and set the next wait in the same statement, so parallel requests can't skip waits
+      const t = now();
+      const used = await env.DB.prepare(`UPDATE claims SET unlock_fails=COALESCE(unlock_fails,0)+1,
+          unlock_after=CASE WHEN COALESCE(unlock_fails,0)+1<=2 THEN NULL WHEN COALESCE(unlock_fails,0)+1=3 THEN ?+3600000 WHEN COALESCE(unlock_fails,0)+1=4 THEN ?+86400000 ELSE ?+604800000 END
+          WHERE id=? AND (unlock_after IS NULL OR unlock_after<=?) RETURNING unlock_fails, unlock_after`).bind(t, t, t, c.id, t).first();
+      if (!used) return json({ error: 'Please wait before trying again.', retryAt: c.unlock_after }, 429);
+      const ver = JSON.parse(k.verifiers), wraps = JSON.parse(k.wraps), proofs = body.proofs || {};
+      for (const pair of ['01', '02', '12']) {
+        if (typeof proofs[pair] !== 'string' || !/^[0-9a-f]{64}$/.test(proofs[pair])) continue;
+        const i = ver[pair].indexOf(await pepper(env, proofs[pair]));
+        if (i >= 0) {
+          await env.DB.prepare('UPDATE claims SET unlock_fails=0, unlock_after=NULL WHERE id=?').bind(c.id).run();
+          await logEvent(env, u.id, 'vault_opened_with_answers', { claim: c.id });
+          return json({ ok: true, pair, serverShare: await openShare(env, u.server_share), wrapped: wraps[pair][i], vault: u.vault_ct, name: u.name });
+        }
+      }
+      const wait = used.unlock_after || 0;
+      return json({ error: wait ? 'Those answers did not open the vault.' : 'Those answers did not open the vault. Check them and try again.', retryAt: wait, fails: used.unlock_fails }, 401);
+    }
     if (p === '/api/claim/status' && m === 'GET') {
       const out = { status: c.status, proofRequired: u.proof_required };
-      if (c.status === 'released') {
-        // Release package: server share + ciphertext. The nominee still needs the legacy code (sovereign mode).
-        out.package = { name: u.name, vault: u.vault_ct, wrappedRelease: u.wrapped_release, serverShare: u.server_share, releaseMode: u.release_mode };
+      if (c.status === 'released' && u.state === 'released') {
+        const k = c.nominee_id && await env.DB.prepare('SELECT questions, salts FROM nominee_keys WHERE nominee_id=?').bind(c.nominee_id).first();
+        if (k) {
+          // Questions mode: nothing that opens the vault is sent until two answers are proved
+          out.package = { name: u.name, releaseMode: 'questions', questions: JSON.parse(k.questions), salts: JSON.parse(k.salts), retryAt: c.unlock_after || 0 };
+        } else if (u.wrapped_release) {
+          // Release package: server share + ciphertext. In sovereign mode the nominee also needs the printed code.
+          out.package = { name: u.name, vault: u.vault_ct, wrappedRelease: u.wrapped_release, serverShare: await openShare(env, u.server_share), releaseMode: u.release_mode };
+        } else out.status = 'unavailable';
       } else if (c.status === 'approved') out.vetoEndsAt = u.veto_ends_at;
       out.ownerFirstName = u.name.split(' ')[0];
       return json(out);
@@ -650,8 +747,11 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       return d ? new Response(unb64(d.data), { headers: { 'content-type': d.mime } }) : err('Not found', 404);
     }
     if (p === '/api/admin/run-escalation' && m === 'POST') {
-      // Test hook: simulate the cron at a future time
-      return json(await runEscalation(env, baseUrl(req, env), body.at || now()));
+      // Test hook: simulating a future date must name the accounts it may touch, so tests can never escalate real users
+      const at = body.at || now();
+      const only = Array.isArray(body.emails) ? body.emails.map(e => String(e).toLowerCase()) : null;
+      if (at > now() + 60000 && !only) return err('A simulated future run must list the test accounts in "emails"');
+      return json(await runEscalation(env, baseUrl(req, env), at, only));
     }
     if (p === '/api/admin/events' && m === 'GET') {
       const { results } = await env.DB.prepare('SELECT * FROM events ORDER BY id DESC LIMIT 200').all();
