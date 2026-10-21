@@ -70,7 +70,7 @@ function layout(inner) {
   return `<!doctype html><html><body style="margin:0;background:#f5f3ee;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1c2430">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f3ee"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px">
-<tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px"><img src="https://savemysecrets.com/icon-192.png" width="36" height="36" alt="" style="vertical-align:middle;border-radius:8px;margin-right:8px">Save My <span style="color:#b08a4a">Secrets</span></td></tr>
+<tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px"><img src="https://savemysecrets.com/icon-192.png" width="36" height="36" alt="" style="vertical-align:middle;border-radius:8px;margin-right:8px">Save My <span style="color:#8b6914">Secrets</span></td></tr>
 <tr><td style="padding:8px 24px 24px;font-size:16px;line-height:1.55">${inner}</td></tr></table>
 <p style="font-size:12px;color:#6b7280;max-width:560px;line-height:1.5">Save My Secrets is in alpha. Please don't store anything mission critical yet.<br>Questions? Reply to this email or write to savemysecrets@alamex.com</p>
 </td></tr></table></body></html>`;
@@ -815,31 +815,7 @@ export async function handleRequest(req, env) {
     }
   }
   const res = await env.ASSETS.fetch(req);
-  // No dead URLs: anything that doesn't exist goes to the homepage
-  if (res.status === 404) {
-    const notFound = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Page not found | Save My Secrets</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/style.css?v=20261015a">
-</head>
-<body>
-<div class="wrap">
-<nav><a class="logo" href="/"><img src="/favicon.svg" class="logo-icon" alt="" width="30" height="30">Save My <b>Secrets</b></a></nav>
-<div style="text-align:center;padding:80px 20px">
-<h1 style="font-size:72px;margin:0;color:#8b6914">404</h1>
-<h2>Page not found</h2>
-<p class="muted">The page you're looking for doesn't exist.</p>
-<p><a href="/" class="btn accent">Go home</a></p>
-</div>
-</div>
-</body>
-</html>`;
-    return new Response(notFound, { status: 404, headers: { 'content-type': 'text/html;charset=utf-8' } });
-  }
-  // Security headers: scripts may only come from this site
+  // Security headers: apply to all responses including 404s
   const out = new Response(res.body, res);
   out.headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   out.headers.set('X-Content-Type-Options', 'nosniff');
