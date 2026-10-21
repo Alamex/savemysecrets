@@ -70,7 +70,7 @@ function layout(inner) {
   return `<!doctype html><html><body style="margin:0;background:#f5f3ee;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1c2430">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f3ee"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px">
-<tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px"><img src="https://savemysecrets.com/icon-192.png" width="36" height="36" alt="" style="vertical-align:middle;border-radius:8px;margin-right:8px">Save My <span style="color:#b08a4a">Secrets</span></td></tr>
+<tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px"><img src="https://savemysecrets.com/icon-192.png" width="36" height="36" alt="" style="vertical-align:middle;border-radius:8px;margin-right:8px">Save My <span style="color:#8b6914">Secrets</span></td></tr>
 <tr><td style="padding:8px 24px 24px;font-size:16px;line-height:1.55">${inner}</td></tr></table>
 <p style="font-size:12px;color:#6b7280;max-width:560px;line-height:1.5">Save My Secrets is in alpha. Please don't store anything mission critical yet.<br>Questions? Reply to this email or write to savemysecrets@alamex.com</p>
 </td></tr></table></body></html>`;
