@@ -20,8 +20,8 @@ const browser = await chromium.launch(); const ctx = await browser.newContext({ 
 const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('response', r => { if (r.status() === 401 && !r.url().includes('/api/login')) console.log('   401 from', r.request().method(), r.url()); });
 const shot = n => page.screenshot({ path: `${OUT}/j-${n}.png`, fullPage: true });
 const email = `qa+journey${Date.now()}@example.com`, pw = 'a long and memorable passphrase';
-// 1. Sign up from the homepage button
-await page.goto(B + '/'); await page.click('text=I have an invite code'); await page.fill('#iCode', inv); await page.click('#fInvite button');
+// 1. Sign up via the discreet 'Have an invite code?' link on /app (the homepage no longer has an invite-code button)
+await page.goto(B + '/app'); await page.click('#vAuth .tabs [data-t=signup]'); await page.click('#showCodeLink'); await page.fill('#iCode', inv); await page.click('#fInvite button');
 await page.waitForSelector('#fSignup:not(.hide)'); ok(true, 'invite accepted');
 await page.fill('#sName', 'Journey Tester'); await page.fill('#sEmail', email); await page.click('#sPhone'); await page.keyboard.type('+971 50 000 0009'); ok(await page.inputValue('#sPhone') === '+971 50 000 0009', 'typing + into the phone field does not double it');
 await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
