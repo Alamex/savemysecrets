@@ -344,7 +344,10 @@ async function api(req, env) {
   if ((p === '/api/waitlist' || p === '/api/subscribe') && m === 'POST') {
     if (!(await allow(env, 'wl:' + ip(req), 10, HOUR))) return slowDown();
     const email = String(body.email || '').trim().toLowerCase();
+    if (email.length > 254) return json({ ok: false, error: 'Please enter a valid email address' }, 400);
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ ok: false, error: 'Please enter a valid email address' }, 400);
+    if (!(await allow(env, 'wl-email:' + email, 5, DAY))) return slowDown();
+    if (body.website || body.url || body.company) return json({ ok: true });
     const ins = await env.DB.prepare('INSERT OR IGNORE INTO signups (email, source, ip, ua) VALUES (?,?,?,?)')
       .bind(email, String(body.source || 'site').slice(0, 40), req.headers.get('cf-connecting-ip') || '', (req.headers.get('user-agent') || '').slice(0, 300)).run();
     if (ins.meta.changes && p === '/api/waitlist') await sendEmail(env, null, email, "You're on the Save My Secrets waiting list",
@@ -805,16 +808,45 @@ export async function handleRequest(req, env) {
   const url = new URL(req.url);
   if (url.pathname.startsWith('/api/')) {
     try { const res = await api(req, env); res.headers.set('cache-control', 'no-store'); return res; }
-    catch (e) { return err(`Server error: ${e.message}`, 500); }
+    catch (e) {
+      console.error('API error:', e);
+      await logEvent(env, null, 'server-error', { path: url.pathname, error: e.message, stack: e.stack?.slice(0, 500) }).catch(() => {});
+      return err('An error occurred. Please try again.', 500);
+    }
   }
   const res = await env.ASSETS.fetch(req);
   // No dead URLs: anything that doesn't exist goes to the homepage
-  if (res.status === 404) return new Response(null, { status: 302, headers: { location: url.origin + '/' } });
+  if (res.status === 404) {
+    const notFound = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Page not found | Save My Secrets</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/style.css?v=20261015a">
+</head>
+<body>
+<div class="wrap">
+<nav><a class="logo" href="/"><img src="/favicon.svg" class="logo-icon" alt="" width="30" height="30">Save My <b>Secrets</b></a></nav>
+<div style="text-align:center;padding:80px 20px">
+<h1 style="font-size:72px;margin:0;color:#b08a4a">404</h1>
+<h2>Page not found</h2>
+<p class="muted">The page you're looking for doesn't exist.</p>
+<p><a href="/" class="btn accent">Go home</a></p>
+</div>
+</div>
+</body>
+</html>`;
+    return new Response(notFound, { status: 404, headers: { 'content-type': 'text/html;charset=utf-8' } });
+  }
   // Security headers: scripts may only come from this site
   const out = new Response(res.body, res);
-  out.headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+  out.headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   out.headers.set('X-Content-Type-Options', 'nosniff');
   out.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  out.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  out.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), magnetometer=(), gyroscope=(), accelerometer=()');
+  out.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
   return out;
 }
 

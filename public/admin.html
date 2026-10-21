@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
 <title>Review | Save My Secrets</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preload" href="/inter-latin-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/fonts.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261015a">
+<link rel="stylesheet" href="/style.css?v=20261021">
 <script src="/qrcode.min.js"></script>
 <style>#out table{display:block;overflow-x:auto;max-width:100%}#out td,#out th{padding:6px 8px;vertical-align:top}#out pre{white-space:pre-wrap;word-break:break-word;max-width:60ch}</style>
 </head>
@@ -55,7 +55,7 @@ async function load() {
       const rows = await call('/api/admin/invites');
       $('out').innerHTML = `<div class="card" style="max-width:520px"><h3>New invite code</h3>
         <label>Code (leave blank to generate)</label><input id="invCode">
-        <label>Label</label><input id="invLabel" placeholder="e.g. Bitcoin conference stand">
+        <label>Label</label><input id="invLabel" placeholder="e.g. Conference stand">
         <label>Maximum uses</label><input id="invMax" type="number" value="200">
         <label>Expires after (days, blank = never)</label><input id="invExp" type="number"><p></p>
         <button class="accent" onclick="mkInvite()">Create</button></div><p></p>

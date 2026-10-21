@@ -3,16 +3,20 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Save My Secrets | Leave what matters to the people who matter</title>
-<meta name="description" content="Leave your passwords, accounts, documents and final wishes to the people you trust, only when it's truly time. Encrypted before it leaves your phone or laptop, and released only after careful checks.">
-<meta property="og:type" content="website"><meta property="og:site_name" content="Save My Secrets"><meta property="og:title" content="Save My Secrets | Leave what matters to the people who matter"><meta property="og:url" content="https://savemysecrets.com/">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<meta name="description" content="Encrypted legacy vault. Store messages, passwords and documents, pass them to people you choose only when it's truly time.">
+<link rel="canonical" href="https://savemysecrets.com/">
+<meta property="og:type" content="website"><meta property="og:site_name" content="Save My Secrets"><meta property="og:title" content="Save My Secrets | Encrypted legacy vault"><meta property="og:description" content="Encrypted legacy vault. Store messages, passwords and documents, pass them to people you choose only when it's truly time."><meta property="og:url" content="https://savemysecrets.com/">
+<meta name="twitter:card" content="summary">
+<link rel="preload" href="/inter-latin-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/inter-latin-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fraunces-latin-600.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/fonts.css">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261015a">
+<link rel="stylesheet" href="/style.css?v=20261021">
 </head>
 <body>
 <div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
@@ -25,10 +29,12 @@
     <p class="lede">Personal messages, final wishes, passwords, accounts and documents, passed to the people you choose only when it's truly time.</p>
     <p><a class="btn accent" href="/app?signup=1">I have an invite code</a></p>
     <form class="inline" id="wl">
-      <input type="email" id="wlEmail" placeholder="No code? Your email" required autocomplete="email">
-      <button class="ghost" type="submit">Join the waiting list</button>
+      <label for="wlEmail" class="sr-only">Email address</label>
+      <input type="email" id="wlEmail" placeholder="No code? Your email" required autocomplete="email" aria-label="Email address for waiting list">
+      <input type="text" name="website" id="wlWebsite" style="position:absolute;left:-9999px" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button class="ghost" type="submit" id="wlBtn">Join the waiting list</button>
     </form>
-    <p id="wlMsg" class="small"></p>
+    <p id="wlMsg" class="small" aria-live="polite"></p>
     <p class="small muted">Named as a nominee by someone who has died or can't be reached? <a href="/claim">Start here</a>.</p>
   </div>
 </div>
@@ -63,10 +69,10 @@
   <div class="notice">Still being built during the alpha: passport checks. Until you've set questions for every nominee, we hold a copy of your vault key ourselves. Choose answers nobody could guess or look up: anyone who stole our database could try guessing them.</div>
 </div></section>
 
-<section><div class="wrap narrow" style="max-width:720px">
+<section><div class="wrap">
   <h2>Questions</h2>
   <details><summary>What if my nominees forget their answers?</summary><p class="muted">Each nominee has their own questions, so if one forgets, another can still open your vault. Each needs two of their three answers, and capitals, spaces and accents don't matter. You can also list other ways they might say it. Every check-in reminds you to make sure your questions still make sense. But if none of your nominees can answer, no one can open your vault, including us. That's what keeps it private.</p></details>
-  <details><summary>Can you see what's in my vault?</summary><p class="muted">Your vault is encrypted before it leaves your phone or laptop, and once every nominee has questions, the key to open it is made from answers we never see. We'll also let you see exactly what we store, and publish the code that does the encryption, so you don't have to take our word for it.</p></details>
+  <details><summary>Can you see what's in my vault?</summary><p class="muted">Your vault is encrypted before it leaves your phone or laptop, and once every nominee has questions, the key to open it is made from answers we never see. All our code is <a href="https://github.com/Alamex/savemysecrets">published on GitHub</a> so you can see exactly what we store and how the encryption works.</p></details>
   <details><summary>What if I'm in hospital or travelling?</summary><p class="muted">You choose how often we check in (monthly to yearly) and how long we keep trying you (2 to 12 weeks). Before anything is released we make one final check that you don't respond, with alerts on every channel. One tap stops everything.</p></details>
   <details><summary>What can I store?</summary><p class="muted">Anything you'd want someone to have if you weren't here: passwords, bank and pension details, where documents are kept, instructions, a letter.</p></details>
   <details><summary>What stops someone pretending to be one of my nominees?</summary><p class="muted">They'd have to pass an AI interview, a passport check against the details you gave us, and your proof rules (such as a checked death certificate), then get past one final check that you don't respond. Even then, without a nominee's answers, the vault stays locked. Every attempt is logged, and repeated wrong answers mean longer waits.</p></details>
@@ -78,15 +84,33 @@
 
 <script>
 const src = new URLSearchParams(location.search).get('src') || 'site';
-document.getElementById('wl').onsubmit = async e => {
+const form = document.getElementById('wl');
+const btn = document.getElementById('wlBtn');
+const msg = document.getElementById('wlMsg');
+form.onsubmit = async e => {
   e.preventDefault();
-  const m = document.getElementById('wlMsg');
-  m.textContent = 'Adding you...';
-  const r = await fetch('/api/waitlist', { method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ email: document.getElementById('wlEmail').value, source: src }) });
-  const d = await r.json();
-  m.textContent = r.ok ? 'You\'re on the list. We\'ll send you an invite.' : (d.error || 'Something went wrong. Please try again.');
-  m.className = 'small ' + (r.ok ? 'ok' : 'bad');
+  btn.disabled = true;
+  msg.textContent = 'Adding you...';
+  msg.className = 'small';
+  try {
+    const r = await fetch('/api/waitlist', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        email: document.getElementById('wlEmail').value,
+        website: document.getElementById('wlWebsite').value,
+        source: src
+      })
+    });
+    const d = await r.json();
+    msg.textContent = r.ok ? 'You\'re on the list. We\'ll send you an invite.' : (d.error || 'Something went wrong. Please try again.');
+    msg.className = 'small ' + (r.ok ? 'ok' : 'bad');
+  } catch (err) {
+    msg.textContent = 'Something went wrong. Please check your connection and try again.';
+    msg.className = 'small bad';
+  } finally {
+    btn.disabled = false;
+  }
 };
 </script>
 </body>
