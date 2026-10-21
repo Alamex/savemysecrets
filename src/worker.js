@@ -239,7 +239,7 @@ export async function runEscalation(env, origin, at = now(), onlyEmails = null) 
     if (u.state === 'active' && at >= u.next_checkin_at) {
       const noQ = await env.DB.prepare('SELECT n.name FROM nominees n LEFT JOIN nominee_keys k ON k.nominee_id=n.id WHERE n.user_id=? AND k.nominee_id IS NULL').bind(u.id).all();
       const missing = noQ.results.length ? `<p><b>${noQ.results.map(n => esc(n.name)).join(', ')} ${noQ.results.length === 1 ? 'has' : 'have'} no questions yet.</b> ${u.wrapped_release ? 'Until every nominee has questions, we hold a copy of your vault key.' : "They can't open your vault until you add some."}</p>` : '';
-      await sendEmail(env, u.id, u.email, `Quick check-in: are you OK?`, `<p>Hi ${esc(u.name)},</p><p>It's time for your regular check-in. One tap and we'll see you next time.</p>${btn}<p style="color:#6b7280;font-size:14px">While you're here, it's worth checking your nominees' questions still make sense, and that they could still answer them.</p>${missing}<p style="color:#6b7280;font-size:14px">If we don't hear from you, we'll follow up by email, text and WhatsApp for ${u.grace_weeks} weeks before anyone else is contacted. Logging in also counts.</p>`);
+      await sendEmail(env, u.id, u.email, `Quick check-in: are you OK?`, `<p>Hi ${esc(u.name)},</p><p>It's time for your regular check-in. One tap and we'll see you next time.</p>${btn}<p style="color:#6b7280;font-size:14px">While you're here, it's worth checking your nominees' questions still make sense, and that they could still answer them.</p>${missing}<p style="color:#6b7280;font-size:14px">If we don't hear from you, we'll follow up for ${u.grace_weeks} weeks before anyone else is contacted. Logging in also counts.</p>`);
       await env.DB.prepare(`UPDATE users SET state='overdue', overdue_since=?, last_reminder_at=?, reminders_sent=1 WHERE id=?`).bind(at, at, u.id).run();
       out.push([u.email, 'first reminder']);
     } else if (u.state === 'overdue' && at - u.last_reminder_at >= 7 * DAY) {
@@ -256,14 +256,14 @@ export async function runEscalation(env, origin, at = now(), onlyEmails = null) 
         out.push([u.email, `nominees contacted (${noms.length})`]);
       } else {
         await sendEmail(env, u.id, u.email, `We haven't heard from you (week ${weeks + 1})`, `<p>Hi ${esc(u.name)},</p><p>We haven't been able to reach you for your check-in. Please tap below to confirm you're OK.</p>${btn}<p style="color:#6b7280;font-size:14px">If we still can't reach you after ${u.grace_weeks} weeks, we'll contact your nominees to ask if you're OK.</p>`);
-        await sendText(env, u.id, u.phone, `${BRAND}: please confirm you're OK: ${link}`, weeks % 2 ? 'whatsapp' : 'sms');
+        if (u.phone) await sendText(env, u.id, u.phone, `${BRAND}: please confirm you're OK: ${link}`, 'sms');
         await env.DB.prepare(`UPDATE users SET last_reminder_at=?, reminders_sent=reminders_sent+1 WHERE id=?`).bind(at, u.id).run();
         out.push([u.email, `follow-up week ${weeks + 1}`]);
       }
     } else if (u.state === 'nominees_contacted' && at - (u.last_reminder_at || 0) >= 7 * DAY) {
       // Nominees have been contacted, but we keep trying the owner every week: one tap still stops everything
       await sendEmail(env, u.id, u.email, `We've contacted your nominees`, `<p>Hi ${esc(u.name)},</p><p>We couldn't reach you, so we've asked your nominees if you're OK. If you're fine, tap below and everything stops.</p>${btn}`);
-      await sendText(env, u.id, u.phone, `${BRAND}: we've contacted your nominees because we couldn't reach you. If you're fine: ${link}`, 'sms');
+      if (u.phone) await sendText(env, u.id, u.phone, `${BRAND}: we've contacted your nominees because we couldn't reach you. If you're fine: ${link}`, 'sms');
       await env.DB.prepare(`UPDATE users SET last_reminder_at=?, reminders_sent=reminders_sent+1 WHERE id=?`).bind(at, u.id).run();
       out.push([u.email, 'owner reminder after nominees contacted']);
     } else if (u.state === 'veto_window') {
@@ -277,8 +277,7 @@ export async function runEscalation(env, origin, at = now(), onlyEmails = null) 
       } else if (at - (u.last_reminder_at || 0) >= (u.veto_ends_at - at <= 7 * DAY ? DAY : 3 * DAY)) {
         // Alarm on every channel: every 3 days, then daily in the last week
         await sendEmail(env, u.id, u.email, `URGENT: your vault is about to be released`, `<p>Hi ${esc(u.name)},</p><p>One of your nominees has passed our checks. <b>Your vault will be released on ${new Date(u.veto_ends_at).toUTCString().slice(0, 16)}</b> unless you stop it.</p>${button(link, "Stop it: I'm fine")}`);
-        await sendText(env, u.id, u.phone, `URGENT ${BRAND}: your vault is about to be released. Stop it: ${link}`, 'sms');
-        await sendText(env, u.id, u.phone, `URGENT ${BRAND}: your vault is about to be released. Stop it: ${link}`, 'whatsapp');
+        if (u.phone) await sendText(env, u.id, u.phone, `URGENT ${BRAND}: your vault is about to be released. Stop it: ${link}`, 'sms');
         await env.DB.prepare(`UPDATE users SET last_reminder_at=? WHERE id=?`).bind(at, u.id).run();
         out.push([u.email, 'veto alarm']);
       }
@@ -351,7 +350,7 @@ async function api(req, env) {
     const ins = await env.DB.prepare('INSERT OR IGNORE INTO signups (email, source, ip, ua) VALUES (?,?,?,?)')
       .bind(email, String(body.source || 'site').slice(0, 40), req.headers.get('cf-connecting-ip') || '', (req.headers.get('user-agent') || '').slice(0, 300)).run();
     if (ins.meta.changes && p === '/api/waitlist') await sendEmail(env, null, email, "You're on the Save My Secrets waiting list",
-      `<p>Thanks for joining the waiting list.</p><p>Save My Secrets keeps your personal messages, final wishes, passwords and documents encrypted, and passes them to the people you choose only when it's truly time.</p><p>We're letting people in a few at a time during the alpha. We'll email you an invite as soon as there's a place for you.</p>`);
+      `<p>Hi,</p><p>Thank you for your interest in Save My Secrets. You're on the waiting list.</p><p>Save My Secrets is an early-access encrypted vault for personal messages, final wishes, passwords and account details. We're letting people in a few at a time during the alpha. We'll email you an invite code as soon as we have space.</p>`);
     return json({ ok: true });
   }
 
@@ -619,8 +618,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
     const link = `${origin}/api/checkin?u=${u.id}&i=${issued}&s=${await checkinSig(env, u.id, issued)}`;
     await sendEmail(env, u.id, u.email, `URGENT: one of your nominees has asked for your vault`,
       `<p>Hi ${esc(u.name)},</p><p><b>${esc(nominee.name)} has told us something may have happened to you</b> and has asked for access to your vault.</p><p>If you're fine, tap below and the request is closed straight away.</p>${button(link, "Yes, I'm fine")}`);
-    await sendText(env, u.id, u.phone, `URGENT ${BRAND}: a nominee has asked for your vault. If you're fine: ${link}`, 'sms');
-    await sendText(env, u.id, u.phone, `URGENT ${BRAND}: a nominee has asked for your vault. If you're fine: ${link}`, 'whatsapp');
+    if (u.phone) await sendText(env, u.id, u.phone, `URGENT ${BRAND}: a nominee has asked for your vault. If you're fine: ${link}`, 'sms');
     if (u.state === 'active') {
       await env.DB.prepare(`UPDATE users SET prev_state='active', prev_next_checkin=next_checkin_at, forced_overdue=1, state='overdue', overdue_since=?, last_reminder_at=?, reminders_sent=1 WHERE id=?`)
         .bind(now(), now(), u.id).run();
@@ -806,6 +804,13 @@ ${button(link, 'Create my vault')}<p>Your invite code is <b>${esc(code)}</b> if 
 
 export async function handleRequest(req, env) {
   const url = new URL(req.url);
+  
+  // Redirect www to apex domain
+  if (url.hostname === 'www.savemysecrets.com') {
+    const apex = url.hostname.replace(/^www\./, '');
+    return new Response(null, { status: 301, headers: { location: `https://${apex}${url.pathname}${url.search}` } });
+  }
+  
   if (url.pathname.startsWith('/api/')) {
     try { const res = await api(req, env); res.headers.set('cache-control', 'no-store'); return res; }
     catch (e) {

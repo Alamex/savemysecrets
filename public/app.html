@@ -42,7 +42,7 @@
     <p class="small ok" id="inviteOk"></p>
     <label>Your full name</label><input id="sName" required autocomplete="name">
     <label>Email</label><input id="sEmail" type="email" required autocomplete="email">
-    <label>Mobile (for check-in texts and WhatsApp)</label><input id="sPhone" type="tel" placeholder="+ country code and number" autocomplete="tel">
+    <label>Mobile (optional)</label><input id="sPhone" type="tel" placeholder="+ country code and number" autocomplete="tel">
     <label>Master password (at least 12 characters)</label><input id="sPw" type="password" minlength="12" required autocomplete="new-password">
     <label>Confirm master password</label><input id="sPw2" type="password" minlength="12" required autocomplete="new-password">
     <label class="check"><input type="checkbox" id="sAlpha" required> I understand this is an alpha and I won't store anything mission critical yet.</label>
@@ -143,7 +143,7 @@
     <label>If I don't respond, keep trying me for</label><select id="rWeeks"><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="6">6 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select>
     <label>Before release, my nominee must</label><select id="rProof"><option value="death_certificate">provide a death certificate (checked)</option><option value="nominee_confirm">pass the interview and confirm what happened</option><option value="none">pass the interview only</option></select>
     <label>Final check before release: how long you have to respond</label><select id="rVeto"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
-    <label>My mobile</label><input id="rPhone" type="tel" placeholder="+ country code and number">
+    <label>Mobile (optional)</label><input id="rPhone" type="tel" placeholder="+ country code and number">
     <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
   </div>
 
@@ -227,7 +227,7 @@ function showTryResult(d) {
   $('tryResult').innerHTML = `<div class="card"><h3>How our checker rated this</h3><p><b>${esc(risk)}</b>${a.summary ? '<br>' + esc(a.summary) : ''}</p>
     ${(a.red_flags || []).length ? '<p class="small bad">Red flags: ' + a.red_flags.map(esc).join('; ') + '</p>' : ''}
     <h3>In a real request, what happens next</h3>
-    <p class="small">1. The moment they started, you'd get an urgent email, text and WhatsApp. One tap from you closes the request.<br>
+    <p class="small">1. The moment they started, you'd get an urgent email. One tap from you closes the request.<br>
     2. ${esc(proof)}<br>3. One final check that you don't respond: ${d.vetoDays} days of alarms to you.<br>4. Only then would they answer the questions you set for them, on their own device, to open your vault.</p></div>`;
   $('tryResult').classList.remove('hide');
 }
