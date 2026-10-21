@@ -24,15 +24,14 @@
   <nav><a class="logo" href="/"><img src="/favicon.svg" class="logo-icon" alt="" width="30" height="30">Save My <b>Secrets</b></a><span class="small"><a href="/claim">Nominees</a> &nbsp;·&nbsp; <a href="/pricing">Pricing</a> &nbsp;·&nbsp; <a href="/app">Log in</a></span></nav>
 
   <div class="hero" id="notify">
-    <span class="pill">Alpha · invite only</span>
+    <span class="pill">Alpha · by approval</span>
     <h1>Leave what matters to the people who matter.</h1>
     <p class="lede">Personal messages, final wishes, passwords, accounts and documents, passed to the people you choose only when it's truly time.</p>
-    <p><a class="btn accent" href="/app?signup=1">I have an invite code</a></p>
     <form class="inline" id="wl">
       <label for="wlEmail" class="sr-only">Email address</label>
-      <input type="email" id="wlEmail" placeholder="No code? Your email" required autocomplete="email" aria-label="Email address for waiting list">
+      <input type="email" id="wlEmail" placeholder="Your email" required autocomplete="email" aria-label="Email address to request access">
       <input type="text" name="website" id="wlWebsite" style="position:absolute;left:-9999px" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <button class="ghost" type="submit" id="wlBtn">Request access</button>
+      <button class="accent" type="submit" id="wlBtn">Request access</button>
     </form>
     <p id="wlMsg" class="small" aria-live="polite"></p>
     <p class="small muted">Named as a nominee by someone who has died or can't be reached? <a href="/claim">Start here</a>.</p>
