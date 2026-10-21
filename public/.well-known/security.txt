@@ -1,0 +1,3 @@
+Contact: mailto:savemysecrets@alamex.com
+Preferred-Languages: en
+Canonical: https://savemysecrets.com/.well-known/security.txt
