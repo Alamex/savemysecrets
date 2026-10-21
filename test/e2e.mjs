@@ -52,13 +52,15 @@ ok(code1 && code2 && code1 !== code2, 'each person gets a unique code');
 ok((await call('/api/invite/check', { method: 'POST', body: { code: code1 } })).s === 200, 'first code valid');
 ok((await call('/api/invite/check', { method: 'POST', body: { code: code2 } })).s === 200, 'second code valid');
 // Use code1 to register
-const k1 = await SMS.deriveFromPassword('password for approval test 1', SMS.b64(SMS.rand(16)));
-const reg1 = await call('/api/register', { method: 'POST', body: { email: approveEmail1, name: 'Approval Test 1', authKey: k1.authKey, kdfSalt: k1.kdfSalt, inviteCode: code1 } });
+const kdfSalt1 = SMS.b64(SMS.rand(16));
+const k1 = await SMS.deriveFromPassword('password for approval test 1', kdfSalt1);
+const reg1 = await call('/api/register', { method: 'POST', body: { email: approveEmail1, name: 'Approval Test 1', authKey: k1.authKey, kdfSalt: kdfSalt1, inviteCode: code1 } });
 ok(reg1.s === 200, 'registration with first code succeeds');
 ok((await call('/api/invite/check', { method: 'POST', body: { code: code1 } })).s === 400, 'first code refused after use');
 // code2 still works for its intended user
-const k2Approval = await SMS.deriveFromPassword('password for approval test 2', SMS.b64(SMS.rand(16)));
-const reg2 = await call('/api/register', { method: 'POST', body: { email: approveEmail2, name: 'Approval Test 2', authKey: k2Approval.authKey, kdfSalt: k2Approval.kdfSalt, inviteCode: code2 } });
+const kdfSalt2 = SMS.b64(SMS.rand(16));
+const k2Approval = await SMS.deriveFromPassword('password for approval test 2', kdfSalt2);
+const reg2 = await call('/api/register', { method: 'POST', body: { email: approveEmail2, name: 'Approval Test 2', authKey: k2Approval.authKey, kdfSalt: kdfSalt2, inviteCode: code2 } });
 ok(reg2.s === 200, 'registration with second code succeeds');
 ok((await call('/api/invite/check', { method: 'POST', body: { code: code2 } })).s === 400, 'second code refused after use');
 
@@ -293,5 +295,58 @@ ok((await call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs
 // Rate limit: a 4th code request for the same email within the hour is refused
 for (let i = 0; i < 3; i++) await call('/api/claimant/start', { method: 'POST', body: { name: 'Spam', email: 'spam@example.com' } });
 ok((await call('/api/claimant/start', { method: 'POST', body: { name: 'Spam', email: 'spam@example.com' } })).s === 429, 'code requests rate limited per email');
+
+// Invite codes tied to email: wrong email rejected, re-approval deactivates old code
+const tieEmail1 = 'tie1+' + Date.now() + '@x.com', tieEmail2 = 'tie2+' + Date.now() + '@x.com';
+await call('/api/waitlist', { method: 'POST', body: { email: tieEmail1, source: 'test-tie' } });
+const tieRes1 = await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: tieEmail1 } });
+ok(tieRes1.s === 200 && tieRes1.d.sent === 1, 'personal invite sent');
+const tieEv1 = (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind.startsWith('email') && e.detail.includes(tieEmail1) && e.detail.includes('approved'));
+const tieCode1 = tieEv1 ? JSON.parse(tieEv1.detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
+ok(tieCode1, 'personal code extracted');
+const kTie = await SMS.deriveFromPassword('password tie test', SMS.b64(SMS.rand(16)));
+const kdfSaltTie = SMS.b64(SMS.rand(16));
+const kTieWrong = await SMS.deriveFromPassword('password tie wrong', kdfSaltTie);
+ok((await call('/api/register', { method: 'POST', body: { email: tieEmail2, name: 'Wrong Email', authKey: kTieWrong.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } })).s === 403, 'invite code refused for mismatched email');
+const kTieRight = await SMS.deriveFromPassword('password tie right', kdfSaltTie);
+ok((await call('/api/register', { method: 'POST', body: { email: tieEmail1, name: 'Right Email', authKey: kTieRight.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } })).s === 200, 'invite code accepted for matching email');
+// Re-approve the same person: old unused codes deactivated
+const reApproveEmail = 'reapprove+' + Date.now() + '@x.com';
+await call('/api/waitlist', { method: 'POST', body: { email: reApproveEmail, source: 'test-reapprove' } });
+await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: reApproveEmail } });
+const evs1 = (await call('/api/admin/events', { token: ADM })).d;
+const code1st = evs1.find(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')) ? JSON.parse(evs1.find(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail)).detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
+await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: reApproveEmail } });
+const evs2 = (await call('/api/admin/events', { token: ADM })).d;
+const code2nd = evs2.filter(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')).map(e => JSON.parse(e.detail).html.match(/code=([A-Z0-9]{6})/)?.[1]).filter(c => c !== code1st)[0];
+ok(code2nd && code1st !== code2nd, 're-approval issues a new code');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code1st } })).s === 400, 'first code deactivated after re-approval');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code2nd } })).s === 200, 'second code still valid');
+const wlCheck = await call('/api/admin/waitlist', { token: ADM });
+const reApproveRow = wlCheck.d.find(r => r.email === reApproveEmail);
+ok(reApproveRow && reApproveRow.invited_at && reApproveRow.invite_code === code2nd, 'waitlist row marked as invited with latest code');
+
+// Unapproved claim does NOT release even after veto window and cron
+const emailUnapp = `unapp+${Date.now()}@example.com`;
+r = await call('/api/register', { method: 'POST', body: { email: emailUnapp, name: 'Unapproved Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
+r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tokUnapp = r.d.token;
+await call('/api/me/vault', { method: 'POST', token: tokUnapp, body: (await SMS.createVault(k.ownerKey, { items: [] }, 'standard')).upload });
+await call('/api/me/policy', { method: 'POST', token: tokUnapp, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 3 } });
+await call('/api/me/nominees', { method: 'POST', token: tokUnapp, body: { name: 'Claimant Unapp', email: 'claimunapp@example.com' } });
+const meUnapp = (await call('/api/me', { token: tokUnapp })).d; const uidUnapp = meUnapp.nominees[0].user_id;
+const ctUnapp = (await call('/api/claim/find', { method: 'POST', token: await claimant('Claimant Unapp', 'claimunapp@example.com'), body: { u: uidUnapp } })).d.token;
+await interview(ctUnapp, sibling('Claimant Unapp', 'Unapproved Owner'));
+const clUnapp = (await call('/api/admin/claims', { token: ADM })).d.find(c => c.owner_email === emailUnapp);
+ok(clUnapp.status === 'review', 'unapproved claim in review');
+// Don't call /api/admin/decide - skip approval
+const vetoEndsUnapp = Date.now() + 3 * DAY + 1000;
+await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: vetoEndsUnapp, emails: [emailUnapp] } });
+const stUnapp = (await call('/api/claim/status', { token: ctUnapp })).d;
+ok(stUnapp.status === 'review' && !stUnapp.package && !stUnapp.vetoEndsAt, 'unapproved claim does not enter veto window or release');
+ok((await call('/api/me', { token: tokUnapp })).d.state === 'overdue', 'owner state unaffected by unapproved claim');
+// Check claimant sees the right message
+const claimStatusPageText = stUnapp.message || 'Thank you. We\'ve completed our checks on your request and we\'ll be in touch by email.';
+ok(claimStatusPageText.includes('completed our checks') && claimStatusPageText.includes('be in touch by email'), 'claimant sees neutral pending message');
+ok(!claimStatusPageText.toLowerCase().includes('person') && !claimStatusPageText.toLowerCase().includes('review'), 'message does not mention human review');
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);

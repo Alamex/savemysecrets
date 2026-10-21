@@ -72,21 +72,21 @@ function layout(inner) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px">
 <tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px"><img src="https://savemysecrets.com/icon-192.png" width="36" height="36" alt="" style="vertical-align:middle;border-radius:8px;margin-right:8px">Save My <span style="color:#8b6914">Secrets</span></td></tr>
 <tr><td style="padding:8px 24px 24px;font-size:16px;line-height:1.55">${inner}</td></tr></table>
-<p style="font-size:12px;color:#6b7280;max-width:560px;line-height:1.5">Save My Secrets is in alpha. Please don't store anything mission critical yet.<br>Questions? Reply to this email or write to savemysecrets@alamex.com</p>
+<p style="font-size:12px;color:#6b7280;max-width:560px;line-height:1.5">Save My Secrets is in alpha. Please don't store anything mission critical yet.<br>Questions? Reply to this email or write to support@savemysecrets.com</p>
 </td></tr></table></body></html>`;
 }
 const toText = html => html.replace(/<a [^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/g, '$2: $1').replace(/<br\s*\/?>/g, '\n').replace(/<\/p>/g, '\n\n')
   .replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\n{3,}/g, '\n\n').trim();
 
 async function sendEmail(env, userId, to, subject, inner) {
-  const html = layout(inner), text = toText(inner) + '\n\nSave My Secrets (alpha). Questions? savemysecrets@alamex.com';
+  const html = layout(inner), text = toText(inner) + '\n\nSave My Secrets (alpha). Questions? support@savemysecrets.com';
   const from = env.MAIL_FROM || 'hello@savemysecrets.com';
   try {
     if (env.CF_EMAIL_TOKEN && env.CF_ACCOUNT_ID) {
       // Cloudflare Email Service (REST), sent from our own domain
       const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/email/sending/send`, {
         method: 'POST', headers: { authorization: `Bearer ${env.CF_EMAIL_TOKEN}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: { email: from, name: BRAND }, to, replyTo: 'savemysecrets@alamex.com', subject, html, text }),
+        body: JSON.stringify({ from: { email: from, name: BRAND }, to, replyTo: 'support@savemysecrets.com', subject, html, text }),
       });
       const d = await r.json().catch(() => ({}));
       await logEvent(env, userId, r.ok && d.success !== false ? 'email' : 'email(failed)', { to, subject, status: r.status, err: r.ok ? undefined : JSON.stringify(d.errors || d).slice(0, 300) });
@@ -95,7 +95,7 @@ async function sendEmail(env, userId, to, subject, inner) {
     if (env.RESEND_API_KEY) {
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST', headers: { authorization: `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from: `${BRAND} <${from}>`, reply_to: 'savemysecrets@alamex.com', to, subject, html, text }),
+        body: JSON.stringify({ from: `${BRAND} <${from}>`, reply_to: 'support@savemysecrets.com', to, subject, html, text }),
       });
       await logEvent(env, userId, r.ok ? 'email' : 'email(failed)', { to, subject, status: r.status });
       return r.ok;
@@ -370,7 +370,12 @@ async function api(req, env) {
     const exists = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(email.toLowerCase()).first();
     if (exists) return err('An account with that email already exists');
     const code = normCode(body.inviteCode);
-    // Atomic: only succeeds if the code is valid and still has uses left
+    // Check the code exists and is valid
+    const invite = await env.DB.prepare('SELECT approved_email FROM invites WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)').bind(code, now()).first();
+    if (!invite) return err('That invite code isn\'t valid or has been used up.', 403);
+    // For personal codes (with approved_email), verify the email matches
+    if (invite.approved_email && invite.approved_email.toLowerCase() !== email.toLowerCase()) return err('That invite code isn\'t valid or has been used up.', 403);
+    // Atomic: only succeeds if the code is still valid
     const used = await env.DB.prepare(`UPDATE invites SET uses=uses+1 WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)`).bind(code, now()).run();
     if (!used.meta.changes) return err('That invite code isn\'t valid or has been used up.', 403);
     const id = rid(12), authSalt = b64(crypto.getRandomValues(new Uint8Array(16)));
@@ -764,19 +769,28 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
     }
     if (p === '/api/admin/waitlist/invite' && m === 'POST') {
       const emails = (Array.isArray(body.emails) ? body.emails : [body.email]).map(e => String(e || '').trim().toLowerCase()).filter(Boolean).slice(0, 200);
-      let sent = 0;
+      let sent = 0, failed = 0;
       for (const e of emails) {
-        // Generate a unique single-use invite code for this person
+        // Deactivate any earlier unused codes for this email
+        await env.DB.prepare('UPDATE invites SET active=0 WHERE label=? AND uses=0 AND active=1').bind(`Auto: ${e}`).run();
+        // Generate a unique single-use invite code tied to this email
         const code = [...crypto.getRandomValues(new Uint8Array(6))].map(b => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 32]).join('');
-        await env.DB.prepare('INSERT INTO invites (code, label, max_uses, uses, active, expires_at, created_at) VALUES (?,?,1,0,1,?,?)')
-          .bind(code, `Auto: ${e}`, null, now()).run();
+        // Try to send the email first
         const link = `${baseUrl(req, env)}/app?code=${encodeURIComponent(code)}&email=${encodeURIComponent(e)}`;
         const ok = await sendEmail(env, null, e, 'You\'re approved for Save My Secrets', 
           `<p>Hi,</p><p>You asked for early access to Save My Secrets, an encrypted vault that passes your important information to the people you choose. You're approved for the alpha.</p>
 ${button(link, 'Set up your vault')}<p style="color:#6b7280;font-size:14px">This link is just for you and works once.</p><p style="color:#6b7280;font-size:14px">Didn't ask for this? Just ignore this email.</p><p>Neil<br>Save My Secrets</p>`);
-        if (ok) { sent++; await env.DB.prepare('UPDATE signups SET invited_at=?, invite_code=? WHERE email=?').bind(now(), code, e).run(); }
+        if (ok) {
+          // Only create the code if the email was sent successfully
+          await env.DB.prepare('INSERT INTO invites (code, label, max_uses, uses, active, approved_email, expires_at, created_at) VALUES (?,?,1,0,1,?,?,?)')
+            .bind(code, `Auto: ${e}`, e, null, now()).run();
+          await env.DB.prepare('UPDATE signups SET invited_at=?, invite_code=? WHERE email=?').bind(now(), code, e).run();
+          sent++;
+        } else {
+          failed++;
+        }
       }
-      return json({ ok: true, sent });
+      return json({ ok: true, sent, failed });
     }
     if (p === '/api/admin/feedback' && m === 'GET') {
       const { results } = await env.DB.prepare('SELECT * FROM feedback ORDER BY id DESC LIMIT 200').all();

@@ -351,14 +351,15 @@ function renderAll() {
   const claimText = me.openClaim ? '<br><b class="bad">One of your nominees has asked for your vault.</b> If you\'re fine, tap below and the request is closed.' : '';
   const recText = me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
   let statusSuffix = '';
-  if (me.nominees.length === 0) {
+  const needsFineButton = ['overdue', 'nominees_contacted', 'veto_window'].includes(me.state) || me.openClaim;
+  if (me.nominees.length === 0 && !needsFineButton) {
     statusSuffix = '';
     $('noNomineePrompt').classList.remove('hide');
     $('btnFine').classList.add('hide');
   } else {
-    const qText = !me.hasRelease ? 'Only your nominees\' answers can open it' : me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length;
-    statusSuffix = `<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${qText}</span>`;
-    $('noNomineePrompt').classList.add('hide');
+    const qText = me.nominees.length === 0 ? '' : (!me.hasRelease ? 'Only your nominees\' answers can open it' : me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length);
+    statusSuffix = me.nominees.length > 0 ? `<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${qText}</span>` : '';
+    $('noNomineePrompt').classList.toggle('hide', me.nominees.length > 0);
     $('btnFine').classList.remove('hide');
   }
   $('statusLine').innerHTML = `${stateText}${claimText}${recText}${statusSuffix}`;

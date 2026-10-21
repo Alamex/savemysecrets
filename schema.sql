@@ -66,7 +66,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_signups_email ON signups(email);
 -- added Oct 2026: ALTER TABLE signups ADD COLUMN invited_at INTEGER; ALTER TABLE signups ADD COLUMN invite_code TEXT;
 CREATE TABLE IF NOT EXISTS invites (
   code TEXT PRIMARY KEY, label TEXT, max_uses INTEGER DEFAULT 100, uses INTEGER DEFAULT 0,
-  active INTEGER DEFAULT 1, expires_at INTEGER, created_at INTEGER
+  active INTEGER DEFAULT 1, approved_email TEXT, expires_at INTEGER, created_at INTEGER
 );
 CREATE TABLE IF NOT EXISTS claimants (
   id TEXT PRIMARY KEY, email TEXT NOT NULL, name TEXT, otp_hash TEXT, otp_expires INTEGER,
