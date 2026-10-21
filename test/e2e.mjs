@@ -360,9 +360,9 @@ async function claimScreen(status) {
   await run(); return { shown, text: els.s5msg?.textContent || '' };
 }
 const scrReview = csSrc ? await claimScreen('review') : {};
-ok(scrReview.shown === 's5' && scrReview.text === "Thank you. We've completed our checks on your request and we'll be in touch by email.", "claimant in 'review' sees the completed-checks message");
+ok(scrReview.shown === 's5' && scrReview.text === "We've completed our checks on your request and we'll be in touch by email.", "claimant in 'review' sees the completed-checks message");
 ok(!/person|team|human|manual|review/i.test(scrReview.text || 'x person'), 'pending message does not mention human review');
 const scrOdd = csSrc ? await claimScreen('something_new') : {};
-ok(scrOdd.shown === 's5' && scrOdd.text === "Thank you. We'll be in touch by email when we have an update.", 'unknown status gets the neutral fallback');
+ok(scrOdd.shown === 's5' && scrOdd.text === "We'll be in touch by email when we have an update.", 'unknown status gets the neutral fallback');
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);
