@@ -12,8 +12,11 @@ const ctx = { crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob, U
 vm.createContext(ctx); vm.runInContext(fs.readFileSync(new URL('../public/crypto.js', import.meta.url), 'utf8') + ';this.SMS=SMS;', ctx);
 const { SMS } = ctx;
 let fails = 0, r0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
+// Registrations and claimant code requests are rate limited per client IP (worker.js reads CF-Connecting-IP).
+// Give each such request its own test IP so the suite doesn't trip the 10/hour limits; per-email limits still apply.
+let ipSeq = 0; const ipFor = p => ['/api/register', '/api/claimant/start'].includes(p) ? { 'cf-connecting-ip': `198.51.100.${(++ipSeq % 250) + 1}` } : {};
 async function call(p, { method = 'GET', body, token, raw } = {}) {
-  const r = await fetch(B + p, { method, redirect: 'manual', headers: { ...(body && !raw ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: raw || (body ? JSON.stringify(body) : undefined) });
+  const r = await fetch(B + p, { method, redirect: 'manual', headers: { ...ipFor(p), ...(body && !raw ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: raw || (body ? JSON.stringify(body) : undefined) });
   const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { s: r.status, d, h: r.headers };
 }
 function totp(secret) { // RFC 6238 in node
@@ -304,7 +307,6 @@ ok(tieRes1.s === 200 && tieRes1.d.sent === 1, 'personal invite sent');
 const tieEv1 = (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind.startsWith('email') && e.detail.includes(tieEmail1) && e.detail.includes('approved'));
 const tieCode1 = tieEv1 ? JSON.parse(tieEv1.detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
 ok(tieCode1, 'personal code extracted');
-const kTie = await SMS.deriveFromPassword('password tie test', SMS.b64(SMS.rand(16)));
 const kdfSaltTie = SMS.b64(SMS.rand(16));
 const kTieWrong = await SMS.deriveFromPassword('password tie wrong', kdfSaltTie);
 ok((await call('/api/register', { method: 'POST', body: { email: tieEmail2, name: 'Wrong Email', authKey: kTieWrong.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } })).s === 403, 'invite code refused for mismatched email');
@@ -344,9 +346,23 @@ await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at
 const stUnapp = (await call('/api/claim/status', { token: ctUnapp })).d;
 ok(stUnapp.status === 'review' && !stUnapp.package && !stUnapp.vetoEndsAt, 'unapproved claim does not enter veto window or release');
 ok((await call('/api/me', { token: tokUnapp })).d.state === 'overdue', 'owner state unaffected by unapproved claim');
-// Check claimant sees the right message
-const claimStatusPageText = stUnapp.message || 'Thank you. We\'ve completed our checks on your request and we\'ll be in touch by email.';
-ok(claimStatusPageText.includes('completed our checks') && claimStatusPageText.includes('be in touch by email'), 'claimant sees neutral pending message');
-ok(!claimStatusPageText.toLowerCase().includes('person') && !claimStatusPageText.toLowerCase().includes('review'), 'message does not mention human review');
+// Even a year later, with the escalation job run again, an unapproved claim stays in review and nothing is released
+await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 400 * DAY, emails: [emailUnapp] } });
+const stLater = (await call('/api/claim/status', { token: ctUnapp })).d;
+ok(stLater.status === 'review' && !stLater.package && (await call('/api/me', { token: tokUnapp })).d.state !== 'released', 'unapproved claim still not released a year later');
+// What the claimant actually sees: run the real checkStatus() from /claim against stubbed status responses
+const claimHtml = (await call('/claim')).d;
+ok(typeof claimHtml === 'string' && claimHtml.includes("we'll be in touch by email"), '/claim contains the pending message');
+const csSrc = claimHtml.match(/async function checkStatus\(\) \{[\s\S]*?\n\}\n/)?.[0];
+async function claimScreen(status) {
+  const els = {}; const el = id => els[id] ||= { textContent: '', innerHTML: '', classList: { toggle() {}, add() {}, remove() {} } }; let shown = null;
+  const run = vm.runInNewContext(`(async () => { ${csSrc}; await checkStatus(); })`, { $: el, step: n => { shown = n; }, call: async () => ({ status, ownerFirstName: 'Sam', vetoEndsAt: Date.now() + DAY }), owner: '', pkg: null, esc: x => x, waitNote() {}, Date });
+  await run(); return { shown, text: els.s5msg?.textContent || '' };
+}
+const scrReview = csSrc ? await claimScreen('review') : {};
+ok(scrReview.shown === 's5' && scrReview.text === "Thank you. We've completed our checks on your request and we'll be in touch by email.", "claimant in 'review' sees the completed-checks message");
+ok(!/person|team|human|manual|review/i.test(scrReview.text || 'x person'), 'pending message does not mention human review');
+const scrOdd = csSrc ? await claimScreen('something_new') : {};
+ok(scrOdd.shown === 's5' && scrOdd.text === "Thank you. We'll be in touch by email when we have an update.", 'unknown status gets the neutral fallback');
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);

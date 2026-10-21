@@ -16,7 +16,6 @@ h3{font-size:21px}
 .lede{font-size:clamp(18px,2.6vw,21px);color:var(--muted);max-width:40em}
 .hero{padding:28px 0 56px}
 .pill{display:inline-block;font-size:13px;border:1px solid var(--line);border-radius:99px;padding:4px 12px;color:var(--muted);margin-bottom:18px}
-.alpha-bar{background:var(--accent);color:var(--accent-ink);text-align:center;padding:10px 14px;font-size:14px;line-height:1.4}
 form.inline{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px;max-width:520px}
 input,select,textarea{font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:10px;padding:13px 14px;width:100%}
 textarea{min-height:110px;resize:vertical}
@@ -53,6 +52,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}td,th{border-bottom:1px
 pre{white-space:pre-wrap;word-break:break-word;font-size:13px}
 @media print{nav,.noprint{display:none}}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.alpha-bar{background:var(--gold);color:#fff;font-size:14px;line-height:1.4;padding:9px 16px;text-align:center}
+@media (prefers-color-scheme:dark){.alpha-bar{color:#0b1220}}
 .notice{border-left:3px solid var(--gold);background:var(--card);padding:10px 14px;border-radius:8px;font-size:14px;color:var(--muted);margin:12px 0}
 .steps{list-style:none;margin:8px 0 0;padding:0;max-width:760px;margin-left:0;position:relative}
 .steps li{display:grid;grid-template-columns:52px 1fr;gap:18px;position:relative;padding-bottom:28px}
