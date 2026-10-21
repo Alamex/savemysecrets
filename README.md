@@ -77,7 +77,7 @@ See [savemysecrets.com/privacy](https://savemysecrets.com/privacy) and [/terms](
 
 ## Reporting a security issue
 
-Please email savemysecrets@alamex.com. We'd rather hear about a problem from you than from anyone else.
+Please email support@savemysecrets.com. We'd rather hear about a problem from you than from anyone else.
 
 ## Licence
 

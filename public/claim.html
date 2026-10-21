@@ -17,14 +17,13 @@
 <script src="/crypto.js"></script>
 </head>
 <body>
-<div class="alpha-bar"><b>Alpha:</b> Save My Secrets is in testing. Please don't store anything mission critical yet, and keep your usual backups.</div>
 <div class="narrow">
 <nav><a class="logo" href="/"><img src="/favicon.svg" class="logo-icon" alt="" width="30" height="30">Save My <b>Secrets</b></a></nav>
 <p id="flash" class="small"></p>
 
 <div id="s1">
   <h2>Named as a nominee?</h2>
-  <p class="muted">If someone has left you a message to come here, we're sorry you're dealing with this. First, create your account by confirming your email address. Use the email address they're likely to have given us for you.</p>
+  <p class="muted">If someone has left you a message to come here, we're sorry you're dealing with this. First, enter your details here so we can track your request.</p>
   <form id="f1">
     <label>Your full name</label><input id="cName" required autocomplete="name">
     <label>Your email</label><input id="cEmail" type="email" required autocomplete="email">
@@ -64,7 +63,6 @@
 <div id="s5" class="hide">
   <h2>Thank you</h2>
   <p id="s5msg" class="muted"></p>
-  <p class="small muted">Every request is reviewed by a person on our team.</p>
   <button class="ghost" id="btnCheck" style="width:100%">Check status</button>
 </div>
 
@@ -77,7 +75,7 @@
   <div id="vaultOut"></div>
 </div>
 </div>
-<footer><div class="narrow"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="mailto:savemysecrets@alamex.com">savemysecrets@alamex.com</a></div></footer>
+<footer><div class="narrow"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="mailto:support@savemysecrets.com">support@savemysecrets.com</a></div></footer>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -137,13 +135,14 @@ async function checkStatus() {
     if (qm) { $('qIntro').textContent = `${pkg.name.split(' ')[0]} left three questions for you. Their answers are the key.`;
       $('qList').innerHTML = pkg.questions.map((q, i) => `<label>${esc(q)}</label><input id="qa${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">`).join(''); waitNote(pkg.retryAt); }
     step('s6'); }
-  else if (d.status === 'approved') msg(`Your request has been reviewed and approved. As a final check, we keep trying to reach ${owner} until ${new Date(d.vetoEndsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}. If there's no response by then, access opens here and we'll email you.`);
+  else if (d.status === 'approved') msg(`Your request has passed the automated checks. As a final check, we keep trying to reach ${owner} until ${new Date(d.vetoEndsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}. If there's no response by then, access opens here and we'll email you.`);
   else if (d.status === 'vetoed') msg(`${owner} has confirmed they are well, so this request has been closed.`);
   else if (d.status === 'rejected') msg('We could not verify this request. Please reply to our email if you believe this is wrong.');
   else if (d.status === 'unavailable') msg(`We're sorry. ${owner} didn't leave a way for you to open their vault, so we can't release it to you.`);
   else if (d.status === 'awaiting_document') step('s4');
   else if (d.status === 'interview') step('s3');
-  else msg(`Thank you. Your request is being checked, and we're trying to reach ${owner} in the meantime. We'll email you when there's an update. You can close this page and come back later.`);
+  else if (['review', 'approved'].includes(d.status)) msg(`Thank you. We've completed our checks on your request and we'll be in touch by email.`);
+  else msg(`Thank you. We'll be in touch by email when we have an update.`);
 }
 $('btnCheck').onclick = () => checkStatus().catch(x => flash(x.message));
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -173,7 +172,7 @@ $('btnOpen').onclick = async () => {
       const p = document.createElement('div'); p.style.whiteSpace = 'pre-wrap'; p.textContent = body; d.appendChild(p); out.appendChild(d); };
     if (v.letter) add('A letter for you', v.letter);
     (v.items || []).forEach(it => add(it.title, it.body));
-  } catch (x) { flash(pkg.releaseMode === 'questions' ? 'Something went wrong opening the vault. Please contact savemysecrets@alamex.com.' : 'That code did not open the vault. Check it carefully, letter by letter.'); }
+  } catch (x) { flash(pkg.releaseMode === 'questions' ? 'Something went wrong opening the vault. Please contact support@savemysecrets.com.' : 'That code did not open the vault. Check it carefully, letter by letter.'); }
 };
 if (token) checkStatus().catch(() => { sessionStorage.removeItem('claimToken'); token = null; });
 else if (ctoken) { if (u) find({ u }).catch(x => flash(x.message)); else step('sFind'); }

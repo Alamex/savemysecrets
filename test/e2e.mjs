@@ -12,8 +12,11 @@ const ctx = { crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob, U
 vm.createContext(ctx); vm.runInContext(fs.readFileSync(new URL('../public/crypto.js', import.meta.url), 'utf8') + ';this.SMS=SMS;', ctx);
 const { SMS } = ctx;
 let fails = 0, r0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
+// Registrations and claimant code requests are rate limited per client IP (worker.js reads CF-Connecting-IP).
+// Give each such request its own test IP so the suite doesn't trip the 10/hour limits; per-email limits still apply.
+let ipSeq = 0; const ipFor = p => ['/api/register', '/api/claimant/start'].includes(p) ? { 'cf-connecting-ip': `198.51.100.${(++ipSeq % 250) + 1}` } : {};
 async function call(p, { method = 'GET', body, token, raw } = {}) {
-  const r = await fetch(B + p, { method, redirect: 'manual', headers: { ...(body && !raw ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: raw || (body ? JSON.stringify(body) : undefined) });
+  const r = await fetch(B + p, { method, redirect: 'manual', headers: { ...ipFor(p), ...(body && !raw ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: raw || (body ? JSON.stringify(body) : undefined) });
   const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { s: r.status, d, h: r.headers };
 }
 function totp(secret) { // RFC 6238 in node
@@ -36,25 +39,49 @@ ok((await call('/api/waitlist', { method: 'POST', body: { email: wlEmail, source
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes(wlEmail) && e.detail.includes('access request')), 'waitlist confirmation email sent');
 ok((await call('/api/waitlist', { method: 'POST', body: { email: 'nope' } })).s === 400, 'waitlist rejects bad email');
 ok((await call('/api/subscribe', { method: 'POST', body: { email: 's' + Date.now() + '@x.com', source: 'holding-page' } })).s === 200, 'old /api/subscribe still works');
+
+// Approval system: unique single-use codes
+const approveEmail1 = 'approve1+' + Date.now() + '@x.com', approveEmail2 = 'approve2+' + Date.now() + '@x.com';
+ok((await call('/api/waitlist', { method: 'POST', body: { email: approveEmail1, source: 'test' } })).s === 200, 'first approval candidate on waitlist');
+ok((await call('/api/waitlist', { method: 'POST', body: { email: approveEmail2, source: 'test' } })).s === 200, 'second approval candidate on waitlist');
+const approveRes = await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { emails: [approveEmail1, approveEmail2] } });
+ok(approveRes.s === 200 && approveRes.d.sent === 2, 'admin approved two people');
+const events = (await call('/api/admin/events', { token: ADM })).d;
+const email1Event = events.find(e => e.kind.startsWith('email') && e.detail.includes(approveEmail1) && e.detail.includes('approved'));
+const email2Event = events.find(e => e.kind.startsWith('email') && e.detail.includes(approveEmail2) && e.detail.includes('approved'));
+const code1 = email1Event ? JSON.parse(email1Event.detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
+const code2 = email2Event ? JSON.parse(email2Event.detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
+ok(code1 && code2 && code1 !== code2, 'each person gets a unique code');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code1 } })).s === 200, 'first code valid');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code2 } })).s === 200, 'second code valid');
+// Use code1 to register
+const kdfSalt1 = SMS.b64(SMS.rand(16));
+const k1 = await SMS.deriveFromPassword('password for approval test 1', kdfSalt1);
+const reg1 = await call('/api/register', { method: 'POST', body: { email: approveEmail1, name: 'Approval Test 1', authKey: k1.authKey, kdfSalt: kdfSalt1, inviteCode: code1 } });
+ok(reg1.s === 200, 'registration with first code succeeds');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code1 } })).s === 400, 'first code refused after use');
+// code2 still works for its intended user
+const kdfSalt2 = SMS.b64(SMS.rand(16));
+const k2Approval = await SMS.deriveFromPassword('password for approval test 2', kdfSalt2);
+const reg2 = await call('/api/register', { method: 'POST', body: { email: approveEmail2, name: 'Approval Test 2', authKey: k2Approval.authKey, kdfSalt: kdfSalt2, inviteCode: code2 } });
+ok(reg2.s === 200, 'registration with second code succeeds');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code2 } })).s === 400, 'second code refused after use');
+
 ok((await call('/no-such-page')).s === 404, 'unknown URL returns 404');
 for (const pg of ['/privacy', '/terms', '/claim', '/preview']) ok((await call(pg)).s === 200, pg + ' serves');
 ok((await call('/')).h.get('content-security-policy')?.includes("frame-ancestors 'none'"), 'CSP header set');
 
-ok((await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: 'test-conf', label: 'test', max_uses: 1000 } })).s === 200, 'invite created');
-r0 = await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { code: 'TESTCONF', emails: [wlEmail] } });
-ok(r0.s === 200 && r0.d.sent === 1, 'admin emails an invite to a waitlist signup');
-ok((await call('/api/admin/waitlist', { token: ADM })).d.find(w => w.email === wlEmail)?.invite_code === 'TESTCONF', 'waitlist row marked invited');
-ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(wlEmail) && e.detail.includes('/app?invite=TESTCONF')), 'invite email carries the sign-up link');
+ok((await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: 'test-conf', label: 'test', max_uses: 1000 } })).s === 200, 'manual invite code created');
 ok((await call('/api/feedback', { method: 'POST', body: { text: 'The rehearse tab is great', page: '/app' } })).s === 200, 'feedback accepted');
 ok((await call('/api/admin/feedback', { token: ADM })).d.some(f => f.text === 'The rehearse tab is great'), 'feedback visible in admin');
 await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: 'ONEUSE' + Date.now(), max_uses: 1 } });
 ok((await call('/api/invite/check', { method: 'POST', body: { code: 'nope' } })).s === 400, 'bad invite rejected');
-ok((await call('/api/invite/check', { method: 'POST', body: { code: 'test conf' } })).s === 200, 'invite check normalises spaces/case');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: 'test conf' } })).s === 200, 'manual invite check normalises spaces/case');
 const kdfSalt = SMS.b64(SMS.rand(16)); const k = await SMS.deriveFromPassword(pw, kdfSalt);
 ok((await call('/api/register', { method: 'POST', body: { email: 'noinv' + Date.now() + '@x.com', name: 'X', authKey: k.authKey, kdfSalt } })).s === 403, 'register without invite refused');
 const one = 'ONE' + Date.now(); await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: one, max_uses: 1 } });
-ok((await call('/api/register', { method: 'POST', body: { email: 'a' + Date.now() + '@x.com', name: 'A', authKey: k.authKey, kdfSalt, inviteCode: one } })).s === 200, 'single-use invite works once');
-ok((await call('/api/register', { method: 'POST', body: { email: 'b' + Date.now() + '@x.com', name: 'B', authKey: k.authKey, kdfSalt, inviteCode: one } })).s === 403, 'single-use invite refused second time');
+ok((await call('/api/register', { method: 'POST', body: { email: 'a' + Date.now() + '@x.com', name: 'A', authKey: k.authKey, kdfSalt, inviteCode: one } })).s === 200, 'manual single-use invite works once');
+ok((await call('/api/register', { method: 'POST', body: { email: 'b' + Date.now() + '@x.com', name: 'B', authKey: k.authKey, kdfSalt, inviteCode: one } })).s === 403, 'manual single-use invite refused second time');
 let r = await call('/api/register', { method: 'POST', body: { email, name: 'Test Owner', phone: '+971500000000', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 ok(r.s === 200 && r.d.totpSecret, 'register');
 const secret = r.d.totpSecret;
@@ -173,10 +200,10 @@ r = await call('/api/claim/find', { method: 'POST', token: nt2, body: { ownerEma
 ok(r.s === 200 && r.d.status === 'released' && (await call('/api/claim/status', { token: r.d.token })).d.package, 'nominee can come back on a new device after release');
 
 // Scenario 2: owner vetoes by email link during veto window
-const email2 = `veto+${Date.now()}@example.com`; const k2 = await SMS.deriveFromPassword(pw, kdfSalt);
-r = await call('/api/register', { method: 'POST', body: { email: email2, name: 'Alive Owner', authKey: k2.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
+const email2 = `veto+${Date.now()}@example.com`; const k2Veto = await SMS.deriveFromPassword(pw, kdfSalt);
+r = await call('/api/register', { method: 'POST', body: { email: email2, name: 'Alive Owner', authKey: k2Veto.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tok2 = r.d.token;
-await call('/api/me/vault', { method: 'POST', token: tok2, body: (await SMS.createVault(k2.ownerKey, { items: [] }, 'standard')).upload });
+await call('/api/me/vault', { method: 'POST', token: tok2, body: (await SMS.createVault(k2Veto.ownerKey, { items: [] }, 'standard')).upload });
 await call('/api/me/policy', { method: 'POST', token: tok2, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 7 } });
 await call('/api/me/nominees', { method: 'POST', token: tok2, body: { name: 'Bro', email: 'bro@example.com' } });
 const me2 = (await call('/api/me', { token: tok2 })).d; const uid2 = me2.nominees[0].user_id;
@@ -200,9 +227,9 @@ ok((await call(JSON.parse(older.detail).html.match(/href="([^"]+)"/)[1].replace(
 
 // Scenario 3: a rejected claim puts an active owner back where they were; recovery codes; logout
 const email3 = `rej+${Date.now()}@example.com`;
-r = await call('/api/register', { method: 'POST', body: { email: email3, name: 'Third Owner', authKey: k2.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
+r = await call('/api/register', { method: 'POST', body: { email: email3, name: 'Third Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 const sec3 = r.d.totpSecret; r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(sec3) } }); let tok3 = r.d.token; const rec3 = r.d.recoveryCodes;
-await call('/api/me/vault', { method: 'POST', token: tok3, body: (await SMS.createVault(k2.ownerKey, { items: [] }, 'standard')).upload });
+await call('/api/me/vault', { method: 'POST', token: tok3, body: (await SMS.createVault(k.ownerKey, { items: [] }, 'standard')).upload });
 await call('/api/me/policy', { method: 'POST', token: tok3, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 6, veto_days: 7 } });
 await call('/api/me/nominees', { method: 'POST', token: tok3, body: { name: 'Sis', email: 'sis@example.com' } });
 const next3 = (await call('/api/me', { token: tok3 })).d.nextCheckin;
@@ -215,19 +242,19 @@ const me3 = (await call('/api/me', { token: tok3 })).d;
 ok(me3.state === 'active' && me3.nextCheckin === next3 && !me3.openClaim, 'rejected claim restores owner state and schedule');
 ok((await call('/api/claim/status', { token: ct3 })).d.status === 'rejected', 'claimant sees rejection');
 ok((await call('/api/logout', { method: 'POST', token: tok3 })).s === 200 && (await call('/api/me', { token: tok3 })).s === 401, 'logout ends the session');
-ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k2.authKey, recovery: 'WRONG-CODE1' } })).s === 401, 'bad recovery code rejected');
-r = await call('/api/login', { method: 'POST', body: { email: email3, authKey: k2.authKey, recovery: rec3[0].toLowerCase() } });
+ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k.authKey, recovery: 'WRONG-CODE1' } })).s === 401, 'bad recovery code rejected');
+r = await call('/api/login', { method: 'POST', body: { email: email3, authKey: k.authKey, recovery: rec3[0].toLowerCase() } });
 ok(r.s === 200 && r.d.needsEnrol && r.d.totpSecret !== sec3, 'recovery code logs in and forces new 2FA');
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); ok(r.s === 200 && r.d.recoveryCodes.length === 10, 're-enrolled with fresh recovery codes');
-ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k2.authKey, recovery: rec3[1] } })).s === 401, 'old recovery codes replaced');
+ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k.authKey, recovery: rec3[1] } })).s === 401, 'old recovery codes replaced');
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes('recovery code was used')), 'owner emailed when a recovery code is used');
 
 ok((await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 90 * DAY } })).s === 400, 'a simulated future run must name its test accounts');
 // Scenario 4: nominee questions. We delete our openable copy once every nominee has questions; answers open it on the nominee's device
 const email4 = `q+${Date.now()}@example.com`;
-r = await call('/api/register', { method: 'POST', body: { email: email4, name: 'Quentin Owner', authKey: k2.authKey, kdfSalt, inviteCode: 'TESTCONF' } }); const sec4 = r.d.totpSecret;
+r = await call('/api/register', { method: 'POST', body: { email: email4, name: 'Quentin Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } }); const sec4 = r.d.totpSecret;
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(sec4) } }); const tok4 = r.d.token;
-const v4 = await SMS.createVault(k2.ownerKey, { letter: 'For Ana', items: [{ title: 'Deeds', body: 'With the solicitor' }] }, 'standard');
+const v4 = await SMS.createVault(k.ownerKey, { letter: 'For Ana', items: [{ title: 'Deeds', body: 'With the solicitor' }] }, 'standard');
 await call('/api/me/vault', { method: 'POST', token: tok4, body: v4.upload });
 await call('/api/me/policy', { method: 'POST', token: tok4, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 2, veto_days: 3 } });
 const nA = (await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Ana Nominee', email: 'qa@example.com', relationship: 'wife' } })).d.id;
@@ -264,12 +291,78 @@ ok(burst.filter(x => x.s === 401).length === 3 && burst.filter(x => x.s === 429)
 ok(burst.some(x => x.d.retryAt > Date.now() + 3500000), 'third wrong try means an hour wait');
 ok((await call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs: pr.proofs } })).s === 429, 'even right answers wait until the hour is up');
 // The owner turns out to be alive and logs in: the release is withdrawn
-r = await call('/api/login', { method: 'POST', body: { email: email4, authKey: k2.authKey, code: totp(sec4) } });
+r = await call('/api/login', { method: 'POST', body: { email: email4, authKey: k.authKey, code: totp(sec4) } });
 ok(r.s === 200 && !(await call('/api/claim/status', { token: cta })).d.package, 'owner logs in after release: nothing more is handed out');
 ok((await call('/api/claim/unlock', { method: 'POST', token: cta, body: { proofs: pr.proofs } })).s === 403, 'owner alive: answers no longer unlock anything');
 
 // Rate limit: a 4th code request for the same email within the hour is refused
 for (let i = 0; i < 3; i++) await call('/api/claimant/start', { method: 'POST', body: { name: 'Spam', email: 'spam@example.com' } });
 ok((await call('/api/claimant/start', { method: 'POST', body: { name: 'Spam', email: 'spam@example.com' } })).s === 429, 'code requests rate limited per email');
+
+// Invite codes tied to email: wrong email rejected, re-approval deactivates old code
+const tieEmail1 = 'tie1+' + Date.now() + '@x.com', tieEmail2 = 'tie2+' + Date.now() + '@x.com';
+await call('/api/waitlist', { method: 'POST', body: { email: tieEmail1, source: 'test-tie' } });
+const tieRes1 = await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: tieEmail1 } });
+ok(tieRes1.s === 200 && tieRes1.d.sent === 1, 'personal invite sent');
+const tieEv1 = (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind.startsWith('email') && e.detail.includes(tieEmail1) && e.detail.includes('approved'));
+const tieCode1 = tieEv1 ? JSON.parse(tieEv1.detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
+ok(tieCode1, 'personal code extracted');
+const kdfSaltTie = SMS.b64(SMS.rand(16));
+const kTieWrong = await SMS.deriveFromPassword('password tie wrong', kdfSaltTie);
+ok((await call('/api/register', { method: 'POST', body: { email: tieEmail2, name: 'Wrong Email', authKey: kTieWrong.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } })).s === 403, 'invite code refused for mismatched email');
+const kTieRight = await SMS.deriveFromPassword('password tie right', kdfSaltTie);
+ok((await call('/api/register', { method: 'POST', body: { email: tieEmail1, name: 'Right Email', authKey: kTieRight.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } })).s === 200, 'invite code accepted for matching email');
+// Re-approve the same person: old unused codes deactivated
+const reApproveEmail = 'reapprove+' + Date.now() + '@x.com';
+await call('/api/waitlist', { method: 'POST', body: { email: reApproveEmail, source: 'test-reapprove' } });
+await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: reApproveEmail } });
+const evs1 = (await call('/api/admin/events', { token: ADM })).d;
+const code1st = evs1.find(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')) ? JSON.parse(evs1.find(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail)).detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
+await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: reApproveEmail } });
+const evs2 = (await call('/api/admin/events', { token: ADM })).d;
+const code2nd = evs2.filter(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')).map(e => JSON.parse(e.detail).html.match(/code=([A-Z0-9]{6})/)?.[1]).filter(c => c !== code1st)[0];
+ok(code2nd && code1st !== code2nd, 're-approval issues a new code');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code1st } })).s === 400, 'first code deactivated after re-approval');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code2nd } })).s === 200, 'second code still valid');
+const wlCheck = await call('/api/admin/waitlist', { token: ADM });
+const reApproveRow = wlCheck.d.find(r => r.email === reApproveEmail);
+ok(reApproveRow && reApproveRow.invited_at && reApproveRow.invite_code === code2nd, 'waitlist row marked as invited with latest code');
+
+// Unapproved claim does NOT release even after veto window and cron
+const emailUnapp = `unapp+${Date.now()}@example.com`;
+r = await call('/api/register', { method: 'POST', body: { email: emailUnapp, name: 'Unapproved Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
+r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tokUnapp = r.d.token;
+await call('/api/me/vault', { method: 'POST', token: tokUnapp, body: (await SMS.createVault(k.ownerKey, { items: [] }, 'standard')).upload });
+await call('/api/me/policy', { method: 'POST', token: tokUnapp, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 3 } });
+await call('/api/me/nominees', { method: 'POST', token: tokUnapp, body: { name: 'Claimant Unapp', email: 'claimunapp@example.com' } });
+const meUnapp = (await call('/api/me', { token: tokUnapp })).d; const uidUnapp = meUnapp.nominees[0].user_id;
+const ctUnapp = (await call('/api/claim/find', { method: 'POST', token: await claimant('Claimant Unapp', 'claimunapp@example.com'), body: { u: uidUnapp } })).d.token;
+await interview(ctUnapp, sibling('Claimant Unapp', 'Unapproved Owner'));
+const clUnapp = (await call('/api/admin/claims', { token: ADM })).d.find(c => c.owner_email === emailUnapp);
+ok(clUnapp.status === 'review', 'unapproved claim in review');
+// Don't call /api/admin/decide - skip approval
+const vetoEndsUnapp = Date.now() + 3 * DAY + 1000;
+await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: vetoEndsUnapp, emails: [emailUnapp] } });
+const stUnapp = (await call('/api/claim/status', { token: ctUnapp })).d;
+ok(stUnapp.status === 'review' && !stUnapp.package && !stUnapp.vetoEndsAt, 'unapproved claim does not enter veto window or release');
+ok((await call('/api/me', { token: tokUnapp })).d.state === 'overdue', 'owner state unaffected by unapproved claim');
+// Even a year later, with the escalation job run again, an unapproved claim stays in review and nothing is released
+await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 400 * DAY, emails: [emailUnapp] } });
+const stLater = (await call('/api/claim/status', { token: ctUnapp })).d;
+ok(stLater.status === 'review' && !stLater.package && (await call('/api/me', { token: tokUnapp })).d.state !== 'released', 'unapproved claim still not released a year later');
+// What the claimant actually sees: run the real checkStatus() from /claim against stubbed status responses
+const claimHtml = (await call('/claim')).d;
+ok(typeof claimHtml === 'string' && claimHtml.includes("we'll be in touch by email"), '/claim contains the pending message');
+const csSrc = claimHtml.match(/async function checkStatus\(\) \{[\s\S]*?\n\}\n/)?.[0];
+async function claimScreen(status) {
+  const els = {}; const el = id => els[id] ||= { textContent: '', innerHTML: '', classList: { toggle() {}, add() {}, remove() {} } }; let shown = null;
+  const run = vm.runInNewContext(`(async () => { ${csSrc}; await checkStatus(); })`, { $: el, step: n => { shown = n; }, call: async () => ({ status, ownerFirstName: 'Sam', vetoEndsAt: Date.now() + DAY }), owner: '', pkg: null, esc: x => x, waitNote() {}, Date });
+  await run(); return { shown, text: els.s5msg?.textContent || '' };
+}
+const scrReview = csSrc ? await claimScreen('review') : {};
+ok(scrReview.shown === 's5' && scrReview.text === "Thank you. We've completed our checks on your request and we'll be in touch by email.", "claimant in 'review' sees the completed-checks message");
+ok(!/person|team|human|manual|review/i.test(scrReview.text || 'x person'), 'pending message does not mention human review');
+const scrOdd = csSrc ? await claimScreen('something_new') : {};
+ok(scrOdd.shown === 's5' && scrOdd.text === "Thank you. We'll be in touch by email when we have an update.", 'unknown status gets the neutral fallback');
 
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);

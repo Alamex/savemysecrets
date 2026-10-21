@@ -34,7 +34,7 @@
   </form>
   <form id="fInvite" class="hide">
     <div id="noCodeMsg">
-      <p class="muted">Save My Secrets is invite-only during the alpha. <a href="/#notify">Request access</a> and we'll email you when you're in.</p>
+      <p class="muted">Save My Secrets is open to people we approve during the alpha. <a href="/#notify">Request access</a> and we'll email you when you're in.</p>
       <p class="small"><a href="#" id="showCodeLink">Have an invite code?</a></p>
     </div>
     <div id="codeEntry" class="hide">
@@ -104,6 +104,10 @@
   <div class="card" style="margin-bottom:14px">
     <div id="statusLine"></div>
     <p></p><button class="accent" id="btnFine" style="width:100%">I'm fine, check in now</button>
+    <div id="noNomineePrompt" class="hide" style="margin-top:14px">
+      <p class="small muted">Add a nominee so your vault can be passed on.</p>
+      <button class="ghost" style="width:100%" onclick="document.querySelector('[data-t=noms]').click()">Add your first nominee</button>
+    </div>
   </div>
   <div class="tabs" id="dashTabs"><button class="on" data-t="vault">Vault</button><button data-t="noms">Nominees</button><button data-t="rules">Rules</button><button data-t="try">Rehearse</button></div>
 
@@ -263,16 +267,17 @@ $('fInvite').onsubmit = async e => {
   } catch (x) { flash(x.message); }
 };
 $('showCodeLink').onclick = e => { e.preventDefault(); $('noCodeMsg').classList.add('hide'); $('codeEntry').classList.remove('hide'); };
-// ?invite=CODE or ?code=CODE (from invite email) opens straight on sign-up with the code filled in and validated
-{ const qs = new URLSearchParams(location.search), q = qs.get('invite') || qs.get('code'); 
+// ?code=CODE or ?invite=CODE (from invite email) opens straight on sign-up with the code filled in and validated
+{ const qs = new URLSearchParams(location.search), q = qs.get('code') || qs.get('invite'), prefillEmail = qs.get('email'); 
   if (q) { 
     $('iCode').value = q; 
     post('/api/invite/check', { code: q }).then(() => {
       inviteCode = q;
       document.querySelector('#vAuth .tabs [data-t=signup]').click();
-      $('inviteOk').textContent = 'Invite accepted. Create your vault below.';
+      $('inviteOk').textContent = 'You\'re approved. Create your vault.';
       $('fInvite').classList.add('hide');
       $('fSignup').classList.remove('hide');
+      if (prefillEmail) $('sEmail').value = prefillEmail;
     }).catch(err => {
       document.querySelector('#vAuth .tabs [data-t=signup]').click();
       $('noCodeMsg').classList.add('hide');
@@ -340,12 +345,21 @@ $('btnCodeDone').onclick = () => { pendingSeal = null; $('codeBox').textContent 
 function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function renderAll() {
   const next = me.nextCheckin ? new Date(me.nextCheckin).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : 'not set';
-  const stateText = { active: `All good. Next check-in: <b>${next}</b>.`, overdue: '<b class="bad">You missed a check-in.</b> Tap below so we know you\'re fine.',
+  const due = me.state === 'active' && !!me.nextCheckin && Date.now() >= me.nextCheckin;
+  const activeText = due ? '<b class="bad">Your check-in is due.</b> Tap below so we know you\'re fine.'
+    : me.nominees.length === 0 ? `Next check-in: <b>${next}</b>.` : `All good. Next check-in: <b>${next}</b>.`;
+  const stateText = { active: activeText, overdue: '<b class="bad">You missed a check-in.</b> Tap below so we know you\'re fine.',
     nominees_contacted: '<b class="bad">We\'ve contacted your nominees</b> because we couldn\'t reach you. Tap below now.',
     veto_window: '<b class="bad">Your vault is about to be released.</b> Tap below to stop it.', released: 'This vault has been released.' }[me.state] || me.state;
   const claimText = me.openClaim ? '<br><b class="bad">One of your nominees has asked for your vault.</b> If you\'re fine, tap below and the request is closed.' : '';
   const recText = me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
-  $('statusLine').innerHTML = `${stateText}${claimText}${recText}<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${!me.hasRelease ? 'Only your nominees\' answers can open it' : me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length}</span>`;
+  // Never say "All good" with no nominees; the "I'm fine" button shows whenever a check-in is due or anything is in progress
+  const needsFineButton = due || ['overdue', 'nominees_contacted', 'veto_window'].includes(me.state) || me.openClaim;
+  const qText = !me.hasRelease ? 'Only your nominees\' answers can open it' : me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length;
+  const statusSuffix = me.nominees.length > 0 ? `<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${qText}</span>` : '';
+  $('noNomineePrompt').classList.toggle('hide', me.nominees.length > 0);
+  $('btnFine').classList.toggle('hide', me.nominees.length === 0 && !needsFineButton);
+  $('statusLine').innerHTML = `${stateText}${claimText}${recText}${statusSuffix}`;
   $('letter').value = vault.letter || '';
   $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b><span class="small muted">${esc(it.type)}</span>
     <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
