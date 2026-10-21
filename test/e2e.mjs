@@ -28,7 +28,7 @@ ok((await call('/api/waitlist', { method: 'POST', body: { email: wlEmail, source
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes(wlEmail) && e.detail.includes('waiting list')), 'waitlist confirmation email sent');
 ok((await call('/api/waitlist', { method: 'POST', body: { email: 'nope' } })).s === 400, 'waitlist rejects bad email');
 ok((await call('/api/subscribe', { method: 'POST', body: { email: 's' + Date.now() + '@x.com', source: 'holding-page' } })).s === 200, 'old /api/subscribe still works');
-ok([200, 302].includes((await call('/no-such-page')).s), 'unknown URL lands on home');
+ok((await call('/no-such-page')).s === 404, 'unknown URL returns 404');
 for (const pg of ['/privacy', '/terms', '/claim', '/preview']) ok((await call(pg)).s === 200, pg + ' serves');
 ok((await call('/')).h.get('content-security-policy')?.includes("frame-ancestors 'none'"), 'CSP header set');
 
