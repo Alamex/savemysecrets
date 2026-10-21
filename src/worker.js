@@ -763,15 +763,17 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       return json(results);
     }
     if (p === '/api/admin/waitlist/invite' && m === 'POST') {
-      const code = normCode(body.code);
-      const inv = await env.DB.prepare('SELECT * FROM invites WHERE code=? AND active=1 AND uses<max_uses').bind(code).first();
-      if (!inv) return err('That invite code is not active or is used up');
       const emails = (Array.isArray(body.emails) ? body.emails : [body.email]).map(e => String(e || '').trim().toLowerCase()).filter(Boolean).slice(0, 200);
       let sent = 0;
       for (const e of emails) {
-        const link = `${baseUrl(req, env)}/app?invite=${encodeURIComponent(code)}`;
-        const ok = await sendEmail(env, null, e, 'You\'re approved for Save My Secrets', `<p>You're in. Set up your vault here:</p>
-${button(link, 'Set up your vault')}<p style="color:#6b7280;font-size:14px">This link is personal to you. Please don't share it.</p>`);
+        // Generate a unique single-use invite code for this person
+        const code = [...crypto.getRandomValues(new Uint8Array(6))].map(b => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 32]).join('');
+        await env.DB.prepare('INSERT INTO invites (code, label, max_uses, uses, active, expires_at, created_at) VALUES (?,?,1,0,1,?,?)')
+          .bind(code, `Auto: ${e}`, null, now()).run();
+        const link = `${baseUrl(req, env)}/app?code=${encodeURIComponent(code)}&email=${encodeURIComponent(e)}`;
+        const ok = await sendEmail(env, null, e, 'You\'re approved for Save My Secrets', 
+          `<p>Hi,</p><p>You asked for early access to Save My Secrets, an encrypted vault that passes your important information to the people you choose. You're approved for the alpha.</p>
+${button(link, 'Set up your vault')}<p style="color:#6b7280;font-size:14px">This link is just for you and works once.</p><p style="color:#6b7280;font-size:14px">Didn't ask for this? Just ignore this email.</p><p>Neil<br>Save My Secrets</p>`);
         if (ok) { sent++; await env.DB.prepare('UPDATE signups SET invited_at=?, invite_code=? WHERE email=?').bind(now(), code, e).run(); }
       }
       return json({ ok: true, sent });
