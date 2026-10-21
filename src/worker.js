@@ -815,31 +815,7 @@ export async function handleRequest(req, env) {
     }
   }
   const res = await env.ASSETS.fetch(req);
-  // No dead URLs: anything that doesn't exist goes to the homepage
-  if (res.status === 404) {
-    const notFound = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Page not found | Save My Secrets</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/style.css?v=20261015a">
-</head>
-<body>
-<div class="wrap">
-<nav><a class="logo" href="/"><img src="/favicon.svg" class="logo-icon" alt="" width="30" height="30">Save My <b>Secrets</b></a></nav>
-<div style="text-align:center;padding:80px 20px">
-<h1 style="font-size:72px;margin:0;color:#8b6914">404</h1>
-<h2>Page not found</h2>
-<p class="muted">The page you're looking for doesn't exist.</p>
-<p><a href="/" class="btn accent">Go home</a></p>
-</div>
-</div>
-</body>
-</html>`;
-    return new Response(notFound, { status: 404, headers: { 'content-type': 'text/html;charset=utf-8' } });
-  }
-  // Security headers: scripts may only come from this site
+  // Security headers: apply to all responses including 404s
   const out = new Response(res.body, res);
   out.headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   out.headers.set('X-Content-Type-Options', 'nosniff');
