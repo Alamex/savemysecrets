@@ -256,8 +256,8 @@ export async function runEscalation(env, origin, at = now(), onlyEmails = null) 
         out.push([u.email, `nominees contacted (${noms.length})`]);
       } else {
         await sendEmail(env, u.id, u.email, `We haven't heard from you (week ${weeks + 1})`, `<p>Hi ${esc(u.name)},</p><p>We haven't been able to reach you for your check-in. Please tap below to confirm you're OK.</p>${btn}<p style="color:#6b7280;font-size:14px">If we still can't reach you after ${u.grace_weeks} weeks, we'll contact your nominees to ask if you're OK.</p>`);
-      if (u.phone && weeks < 6) await sendText(env, u.id, u.phone, `${BRAND}: please confirm you're OK: ${link}`, 'sms');
-      await env.DB.prepare(`UPDATE users SET last_reminder_at=?, reminders_sent=reminders_sent+1 WHERE id=?`).bind(at, u.id).run();
+        if (u.phone) await sendText(env, u.id, u.phone, `${BRAND}: please confirm you're OK: ${link}`, 'sms');
+        await env.DB.prepare(`UPDATE users SET last_reminder_at=?, reminders_sent=reminders_sent+1 WHERE id=?`).bind(at, u.id).run();
         out.push([u.email, `follow-up week ${weeks + 1}`]);
       }
     } else if (u.state === 'nominees_contacted' && at - (u.last_reminder_at || 0) >= 7 * DAY) {
