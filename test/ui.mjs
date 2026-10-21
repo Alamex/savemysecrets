@@ -1,5 +1,13 @@
 import { chromium, devices } from 'playwright'; import crypto from 'crypto'; import fs from 'fs';
 const B = process.env.B || 'http://localhost:8787', ADM = process.env.ADM || 'admin-dev-token', P = B.startsWith('https') ? 'live-' : '';
+
+// Production guard: refuse to run tests against non-localhost unless explicitly allowed
+const u = new URL(B);
+if (!['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && process.env.ALLOW_LIVE !== 'yes-i-mean-production') {
+  console.error(`HARD RULE: Tests must not run against ${B}. Only localhost/127.0.0.1/[::1] are allowed, or set ALLOW_LIVE=yes-i-mean-production.`);
+  process.exit(1);
+}
+
 function totp(secret) { const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'; let bits = 0, val = 0; const out = [];
   for (const c of secret.replace(/\s/g, '')) { val = (val << 5) | A.indexOf(c); bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; } }
   const buf = Buffer.alloc(8); buf.writeUInt32BE(Math.floor(Date.now() / 30000), 4); const h = crypto.createHmac('sha1', Buffer.from(out)).update(buf).digest(); const o = h[19] & 15;

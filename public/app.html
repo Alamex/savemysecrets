@@ -33,10 +33,14 @@
     <button class="accent" style="width:100%">Unlock</button>
   </form>
   <form id="fInvite" class="hide">
-    <p class="muted">Save My Secrets is invite-only during the alpha.</p>
-    <label>Invite code</label><input id="iCode" required autocomplete="off" autocapitalize="characters">
-    <p></p><button class="accent" style="width:100%">Continue</button>
-    <p class="small muted">No code? <a href="/#notify">Join the waiting list</a> and we'll let you know.</p>
+    <div id="noCodeMsg">
+      <p class="muted">Save My Secrets is invite-only during the alpha. <a href="/#notify">Request access</a> and we'll email you when you're in.</p>
+      <p class="small"><a href="#" id="showCodeLink">Have an invite code?</a></p>
+    </div>
+    <div id="codeEntry" class="hide">
+      <label>Invite code</label><input id="iCode" required autocomplete="off" autocapitalize="characters">
+      <p></p><button class="accent" style="width:100%">Continue</button>
+    </div>
   </form>
   <form id="fSignup" class="hide">
     <p class="small ok" id="inviteOk"></p>
@@ -258,8 +262,27 @@ $('fInvite').onsubmit = async e => {
     $('inviteOk').textContent = 'Invite accepted. Create your vault below.'; $('fInvite').classList.add('hide'); $('fSignup').classList.remove('hide');
   } catch (x) { flash(x.message); }
 };
-// ?invite=CODE (from the QR card) opens straight on sign-up with the code filled in
-{ const qs = new URLSearchParams(location.search), q = qs.get('invite'); if (q) $('iCode').value = q; if (q || qs.get('signup')) document.querySelector('#vAuth .tabs [data-t=signup]').click(); }
+$('showCodeLink').onclick = e => { e.preventDefault(); $('noCodeMsg').classList.add('hide'); $('codeEntry').classList.remove('hide'); };
+// ?invite=CODE or ?code=CODE (from invite email) opens straight on sign-up with the code filled in and validated
+{ const qs = new URLSearchParams(location.search), q = qs.get('invite') || qs.get('code'); 
+  if (q) { 
+    $('iCode').value = q; 
+    post('/api/invite/check', { code: q }).then(() => {
+      inviteCode = q;
+      document.querySelector('#vAuth .tabs [data-t=signup]').click();
+      $('inviteOk').textContent = 'Invite accepted. Create your vault below.';
+      $('fInvite').classList.add('hide');
+      $('fSignup').classList.remove('hide');
+    }).catch(err => {
+      document.querySelector('#vAuth .tabs [data-t=signup]').click();
+      $('noCodeMsg').classList.add('hide');
+      $('codeEntry').classList.remove('hide');
+      flash(err.message);
+    });
+  } else if (qs.get('signup')) { 
+    document.querySelector('#vAuth .tabs [data-t=signup]').click(); 
+  }
+}
 $('fSignup').onsubmit = async e => {
   e.preventDefault(); const btn = e.submitter; flash();
   if ($('sPw').value !== $('sPw2').value) return flash('Passwords do not match');
