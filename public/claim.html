@@ -13,7 +13,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261021">
+<link rel="stylesheet" href="/style.css?v=20261021b">
 <script src="/crypto.js"></script>
 </head>
 <body>
@@ -141,8 +141,8 @@ async function checkStatus() {
   else if (d.status === 'unavailable') msg(`We're sorry. ${owner} didn't leave a way for you to open their vault, so we can't release it to you.`);
   else if (d.status === 'awaiting_document') step('s4');
   else if (d.status === 'interview') step('s3');
-  else if (['review', 'approved'].includes(d.status)) msg(`Thank you. We've completed our checks on your request and we'll be in touch by email.`);
-  else msg(`Thank you. We'll be in touch by email when we have an update.`);
+  else if (['review', 'approved'].includes(d.status)) msg(`We've completed our checks on your request and we'll be in touch by email.`);
+  else msg(`We'll be in touch by email when we have an update.`);
 }
 $('btnCheck').onclick = () => checkStatus().catch(x => flash(x.message));
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

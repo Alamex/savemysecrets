@@ -67,7 +67,7 @@ const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const button = (href, label) => `<p style="margin:24px 0"><a href="${href}" style="display:inline-block;background:#1f3a5f;color:#ffffff;padding:14px 22px;border-radius:10px;text-decoration:none;font-weight:600">${esc(label)}</a></p>`;
 // Every email shares one simple, mobile-friendly layout
 function layout(inner) {
-  return `<!doctype html><html><body style="margin:0;background:#f5f3ee;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1c2430">
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;background:#f5f3ee;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;color:#1c2430">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f5f3ee"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:14px">
 <tr><td style="padding:24px 24px 0;font-family:Georgia,serif;font-size:22px"><img src="https://savemysecrets.com/icon-192.png" width="36" height="36" alt="" style="vertical-align:middle;border-radius:8px;margin-right:8px">Save My <span style="color:#8b6914">Secrets</span></td></tr>
