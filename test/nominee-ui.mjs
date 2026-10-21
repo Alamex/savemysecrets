@@ -1,6 +1,14 @@
 // Nominee side in an iPhone-sized browser: claim, interview, release, then open the vault with two of three answers
 import { chromium, devices } from 'playwright'; import fs from 'fs'; import vm from 'vm'; import crypto from 'crypto';
 const B = process.env.B || 'http://localhost:8787', ADM = process.env.ADM || 'admin-dev-token', OUT = process.env.OUT || 'shots';
+
+// Production guard: refuse to run tests against non-localhost unless explicitly allowed
+const u = new URL(B);
+if (!['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && process.env.ALLOW_LIVE !== 'yes-i-mean-production') {
+  console.error(`HARD RULE: Tests must not run against ${B}. Only localhost/127.0.0.1/[::1] are allowed, or set ALLOW_LIVE=yes-i-mean-production.`);
+  process.exit(1);
+}
+
 const ctxv = { crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob, Uint8Array }; vm.createContext(ctxv);
 vm.runInContext(fs.readFileSync(new URL('../public/crypto.js', import.meta.url), 'utf8') + ';this.SMS=SMS;', ctxv); const { SMS } = ctxv;
 let fails = 0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };

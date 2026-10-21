@@ -1,5 +1,13 @@
 import fs from 'fs'; import vm from 'vm'; import crypto from 'crypto';
 const B = process.env.B || 'http://localhost:8787', ADM = process.env.ADM || 'admin-dev-token', DAY = 86400000;
+
+// Production guard: refuse to run tests against non-localhost unless explicitly allowed
+const u = new URL(B);
+if (!['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) && process.env.ALLOW_LIVE !== 'yes-i-mean-production') {
+  console.error(`HARD RULE: Tests must not run against ${B}. Only localhost/127.0.0.1/[::1] are allowed, or set ALLOW_LIVE=yes-i-mean-production.`);
+  process.exit(1);
+}
+
 const ctx = { crypto: globalThis.crypto, TextEncoder, TextDecoder, btoa, atob, Uint8Array, JSON, document: undefined };
 vm.createContext(ctx); vm.runInContext(fs.readFileSync(new URL('../public/crypto.js', import.meta.url), 'utf8') + ';this.SMS=SMS;', ctx);
 const { SMS } = ctx;
@@ -25,7 +33,7 @@ const email = `neil+${Date.now()}@example.com`, pw = 'correct horse battery stap
 
 const wlEmail = 'w' + Date.now() + '@example.com';
 ok((await call('/api/waitlist', { method: 'POST', body: { email: wlEmail, source: 'conf' } })).s === 200, 'waitlist');
-ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes(wlEmail) && e.detail.includes('waiting list')), 'waitlist confirmation email sent');
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes(wlEmail) && e.detail.includes('access request')), 'waitlist confirmation email sent');
 ok((await call('/api/waitlist', { method: 'POST', body: { email: 'nope' } })).s === 400, 'waitlist rejects bad email');
 ok((await call('/api/subscribe', { method: 'POST', body: { email: 's' + Date.now() + '@x.com', source: 'holding-page' } })).s === 200, 'old /api/subscribe still works');
 ok((await call('/no-such-page')).s === 404, 'unknown URL returns 404');

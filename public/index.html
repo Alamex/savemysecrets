@@ -32,7 +32,7 @@
       <label for="wlEmail" class="sr-only">Email address</label>
       <input type="email" id="wlEmail" placeholder="No code? Your email" required autocomplete="email" aria-label="Email address for waiting list">
       <input type="text" name="website" id="wlWebsite" style="position:absolute;left:-9999px" tabindex="-1" autocomplete="off" aria-hidden="true">
-      <button class="ghost" type="submit" id="wlBtn">Join the waiting list</button>
+      <button class="ghost" type="submit" id="wlBtn">Request access</button>
     </form>
     <p id="wlMsg" class="small" aria-live="polite"></p>
     <p class="small muted">Named as a nominee by someone who has died or can't be reached? <a href="/claim">Start here</a>.</p>
@@ -103,7 +103,7 @@ form.onsubmit = async e => {
       })
     });
     const d = await r.json();
-    msg.textContent = r.ok ? 'You\'re on the list. We\'ll send you an invite.' : (d.error || 'Something went wrong. Please try again.');
+    msg.textContent = r.ok ? 'Thanks, we\'ve got your request. We approve people personally during the alpha and will email you when you\'re in.' : (d.error || 'Something went wrong. Please try again.');
     msg.className = 'small ' + (r.ok ? 'ok' : 'bad');
   } catch (err) {
     msg.textContent = 'Something went wrong. Please check your connection and try again.';

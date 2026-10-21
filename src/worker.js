@@ -349,8 +349,8 @@ async function api(req, env) {
     if (body.website || body.url || body.company) return json({ ok: true });
     const ins = await env.DB.prepare('INSERT OR IGNORE INTO signups (email, source, ip, ua) VALUES (?,?,?,?)')
       .bind(email, String(body.source || 'site').slice(0, 40), req.headers.get('cf-connecting-ip') || '', (req.headers.get('user-agent') || '').slice(0, 300)).run();
-    if (ins.meta.changes && p === '/api/waitlist') await sendEmail(env, null, email, "You're on the Save My Secrets waiting list",
-      `<p>Hi,</p><p>Thank you for your interest in Save My Secrets. You're on the waiting list.</p><p>Save My Secrets is an early-access encrypted vault for personal messages, final wishes, passwords and account details. We're letting people in a few at a time during the alpha. We'll email you an invite code as soon as we have space.</p>`);
+    if (ins.meta.changes && p === '/api/waitlist') await sendEmail(env, null, email, "Save My Secrets access request received",
+      `<p>Hi,</p><p>Thanks, we've got your request. We approve people personally during the alpha and will email you when you're in.</p>`);
     return json({ ok: true });
   }
 
@@ -770,9 +770,8 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       let sent = 0;
       for (const e of emails) {
         const link = `${baseUrl(req, env)}/app?invite=${encodeURIComponent(code)}`;
-        const ok = await sendEmail(env, null, e, 'Your Save My Secrets invite', `<p>Hello,</p><p>A place has opened up in the Save My Secrets alpha, and it's yours.</p>
-<p>Save My Secrets keeps your personal messages, final wishes, passwords and documents encrypted on your device, and passes them to the people you choose only when it's truly time.</p>
-${button(link, 'Create my vault')}<p>Your invite code is <b>${esc(code)}</b> if you need it.</p><p style="color:#6b7280;font-size:14px">This is an alpha: please don't store anything mission critical yet, and tell us what you think. Just reply to this email.</p>`);
+        const ok = await sendEmail(env, null, e, 'You\'re approved for Save My Secrets', `<p>You're in. Set up your vault here:</p>
+${button(link, 'Set up your vault')}<p style="color:#6b7280;font-size:14px">This link is personal to you. Please don't share it.</p>`);
         if (ok) { sent++; await env.DB.prepare('UPDATE signups SET invited_at=?, invite_code=? WHERE email=?').bind(now(), code, e).run(); }
       }
       return json({ ok: true, sent });
