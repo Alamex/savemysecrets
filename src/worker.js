@@ -829,7 +829,7 @@ export async function handleRequest(req, env) {
 <div class="wrap">
 <nav><a class="logo" href="/"><img src="/favicon.svg" class="logo-icon" alt="" width="30" height="30">Save My <b>Secrets</b></a></nav>
 <div style="text-align:center;padding:80px 20px">
-<h1 style="font-size:72px;margin:0;color:#b08a4a">404</h1>
+<h1 style="font-size:72px;margin:0;color:#8b6914">404</h1>
 <h2>Page not found</h2>
 <p class="muted">The page you're looking for doesn't exist.</p>
 <p><a href="/" class="btn accent">Go home</a></p>
