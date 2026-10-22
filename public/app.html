@@ -27,7 +27,7 @@
   <form id="fLogin">
     <label>Email</label><input id="lEmail" type="email" required autocomplete="username">
     <label>Master password</label><input id="lPw" type="password" required autocomplete="current-password">
-    <div id="codeRow"><label>Code from your authenticator app</label><input id="lCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits"></div>
+    <div id="codeRow"><label>Code from your authenticator app (if you've set up 2FA)</label><input id="lCode" inputmode="numeric" autocomplete="one-time-code" placeholder="6 digits"></div>
     <div id="recRow" class="hide"><label>One of your recovery codes</label><input id="lRec" autocomplete="off" placeholder="XXXXX-XXXXX"></div>
     <p class="small"><a href="#" id="toggleRec">Lost your phone? Use a recovery code</a></p>
     <button class="accent" style="width:100%">Unlock</button>
@@ -64,6 +64,11 @@
   <div id="qr" style="background:#fff;padding:12px;display:inline-block;border-radius:10px"></div>
   <p class="small muted">If neither works, type this setup key into your authenticator app instead: <code id="totpKey"></code> <a href="#" id="copyKey">Copy</a><br>You only need it once, during setup. Your recovery codes, on the next screen, are your backup.</p>
   <form id="fEnrol"><input id="eCode" inputmode="numeric" placeholder="6-digit code" required><p></p><button class="accent" style="width:100%">Turn on two-factor</button></form>
+  <p id="skipRow" class="small hide" style="text-align:center;margin-top:16px"><a href="#" id="skipLink" class="muted">Skip for now (not recommended)</a></p>
+  <div id="skipConfirm" class="card hide" style="margin-top:14px">
+    <p>Without 2FA, anyone who learns your password can open your vault. You can turn 2FA on later from your dashboard.</p>
+    <div class="row"><button class="ghost" id="btnSkipYes">Skip anyway</button><button class="accent" id="btnSkipNo">Set up 2FA</button></div>
+  </div>
 </div>
 
 <!-- SEAL (first vault) -->
@@ -101,6 +106,7 @@
 
 <!-- DASHBOARD -->
 <div id="vDash" class="hide">
+  <div id="tfaBanner" class="hide" style="background:var(--gold);color:#fff;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;line-height:1.4">Your vault is protected by your password only. <a href="#" id="tfaBannerLink" style="color:inherit;font-weight:600;text-decoration:underline">Turn on 2FA</a></div>
   <div class="card" style="margin-bottom:14px">
     <div id="statusLine"></div>
     <p></p><button class="accent" id="btnFine" style="width:100%">I'm fine, check in now</button>
@@ -153,6 +159,11 @@
     <label>Final check before release: how long you have to respond</label><select id="rVeto"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
     <label>Mobile (optional)</label><input id="rPhone" type="tel" placeholder="+ country code and number">
     <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
+    <div id="tfaSettings" class="card hide" style="margin-top:20px">
+      <h3>Two-factor login (2FA)</h3>
+      <p class="small muted">Strongly recommended. With 2FA on, logging in needs your password and a code from your phone.</p>
+      <button class="accent" id="btnTfaSetup" style="width:100%">Set up 2FA</button>
+    </div>
   </div>
 
   <div id="tTry" class="hide">
@@ -251,7 +262,9 @@ $('btnFb').onclick = async () => {
   catch (x) { m.textContent = x.message; m.className = 'small bad'; }
 };
 
-function showEnrol(secret, otpauth) {
+let enrolLater = false;   // true when turning 2FA on from the dashboard, after skipping it at signup
+function showEnrol(secret, otpauth, canSkip) {
+  $('skipRow').classList.toggle('hide', !canSkip); $('skipConfirm').classList.add('hide'); $('eCode').value = '';
   // The QR code includes the logo address so authenticator apps that support it show our padlock; a QR failure must never block sign-up
   const qrText = otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`;
   $('qr').innerHTML = ''; try { if (window.QRCode) new QRCode($('qr'), { text: qrText, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }); } catch (e) { $('qr').textContent = 'Use the button or the setup key below.'; }
@@ -297,7 +310,7 @@ $('fSignup').onsubmit = async e => {
     const kdfSalt = SMS.b64(SMS.rand(16));
     const k = await SMS.deriveFromPassword($('sPw').value, kdfSalt); ownerKey = k.ownerKey;
     const d = await post('/api/register', { name: $('sName').value, email: $('sEmail').value, phone: $('sPhone').value, authKey: k.authKey, kdfSalt, inviteCode });
-    token = d.token; showEnrol(d.totpSecret, d.otpauth);
+    token = d.token; enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip);
   } catch (x) { flash(x.message); } busy(btn, false, 'Create my vault');
 };
 $('fLogin').onsubmit = async e => {
@@ -308,14 +321,29 @@ $('fLogin').onsubmit = async e => {
     const useRec = !$('recRow').classList.contains('hide');
     const d = await post('/api/login', { email: $('lEmail').value, authKey: k.authKey, code: useRec ? '' : $('lCode').value, recovery: useRec ? $('lRec').value : '' });
     token = d.token;
-    if (d.needsEnrol) showEnrol(d.totpSecret, d.otpauth); else await loadDash();
+    if (d.needsEnrol) { enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip); } else await loadDash();
   } catch (x) { flash(x.message); } busy(btn, false, 'Unlock');
 };
 $('fEnrol').onsubmit = async e => {
   e.preventDefault(); flash();
-  try { const d = await post('/api/2fa/enable', { code: $('eCode').value }); token = d.token;
-    if (d.recoveryCodes) { $('recBox').innerHTML = d.recoveryCodes.join('<br>'); show('vRec'); } else await loadDash(); } catch (x) { flash(x.message); }
+  try { const d = await post(enrolLater ? '/api/me/2fa/enable' : '/api/2fa/enable', { code: $('eCode').value }); if (d.token) token = d.token;
+    if (enrolLater) flash('Two-factor login is on. You\'ll need a code from your phone next time you log in.', true);
+    if (d.recoveryCodes) { $('recOk').checked = false; $('btnRecDone').disabled = true; $('recBox').innerHTML = d.recoveryCodes.join('<br>'); show('vRec'); } else await loadDash(); } catch (x) { flash(x.message); }
 };
+
+$('skipLink').onclick = e => { e.preventDefault(); $('skipConfirm').classList.remove('hide'); $('skipConfirm').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+$('btnSkipNo').onclick = () => { $('skipConfirm').classList.add('hide'); $('eCode').focus(); };
+$('btnSkipYes').onclick = async () => {
+  flash(); busy($('btnSkipYes'), true);
+  try { const d = await post('/api/2fa/skip', {}); token = d.token; await loadDash(); } catch (x) { flash(x.message); }
+  busy($('btnSkipYes'), false);
+};
+async function startTfaLater() {
+  flash();
+  try { const d = await post('/api/me/2fa/setup', {}); enrolLater = true; showEnrol(d.totpSecret, d.otpauth, false); window.scrollTo(0, 0); } catch (x) { flash(x.message); }
+}
+$('btnTfaSetup').onclick = startTfaLater;
+$('tfaBannerLink').onclick = e => { e.preventDefault(); startTfaLater(); };
 
 async function loadDash() {
   me = await call('/api/me');
@@ -353,12 +381,13 @@ function renderAll() {
     nominees_contacted: '<b class="bad">We\'ve contacted your nominees</b> because we couldn\'t reach you. Tap below now.',
     veto_window: '<b class="bad">Your vault is about to be released.</b> Tap below to stop it.', released: 'This vault has been released.' }[me.state] || me.state;
   const claimText = me.openClaim ? '<br><b class="bad">One of your nominees has asked for your vault.</b> If you\'re fine, tap below and the request is closed.' : '';
-  const recText = me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
+  const recText = me.totpEnabled && me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
   // Never say "All good" with no nominees; the "I'm fine" button shows whenever a check-in is due or anything is in progress
   const needsFineButton = due || ['overdue', 'nominees_contacted', 'veto_window'].includes(me.state) || me.openClaim;
   const qText = !me.hasRelease ? 'Only your nominees\' answers can open it' : me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length;
   const statusSuffix = me.nominees.length > 0 ? `<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${qText}</span>` : '';
   $('noNomineePrompt').classList.toggle('hide', me.nominees.length > 0);
+  $('tfaBanner').classList.toggle('hide', !!me.totpEnabled); $('tfaSettings').classList.toggle('hide', !!me.totpEnabled);
   $('btnFine').classList.toggle('hide', me.nominees.length === 0 && !needsFineButton);
   $('statusLine').innerHTML = `${stateText}${claimText}${recText}${statusSuffix}`;
   $('letter').value = vault.letter || '';

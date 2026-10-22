@@ -368,4 +368,56 @@ ok(!/person|team|human|manual|review/i.test(scrReview.text || 'x person'), 'pend
 const scrOdd = csSrc ? await claimScreen('something_new') : {};
 ok(scrOdd.shown === 's5' && scrOdd.text === "We'll be in touch by email when we have an update.", 'unknown status gets the neutral fallback');
 
+// Scenario 5: 2FA is optional but strongly recommended
+const email5 = `skip+${Date.now()}@example.com`;
+r = await call('/api/register', { method: 'POST', body: { email: email5, name: 'Skip Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
+ok(r.s === 200 && r.d.canSkip === true, 'signup offers skipping 2FA'); const enrol5 = r.d.token, signupSecret5 = r.d.totpSecret;
+ok((await call('/api/me', { token: enrol5 })).s === 401, 'enrol session cannot reach the vault before skipping');
+ok((await call('/api/me/2fa/setup', { method: 'POST', token: enrol5 })).s === 401, 'enrol session cannot use the dashboard 2FA setup');
+ok((await call('/api/2fa/skip', { method: 'POST' })).s === 401, 'skip needs a session');
+r = await call('/api/2fa/skip', { method: 'POST', token: enrol5 });
+ok(r.s === 200 && !!r.d.token && r.d.kdfSalt === kdfSalt && !r.d.recoveryCodes, 'skip anyway upgrades to a full session, with no recovery codes'); const tok5 = r.d.token;
+ok((await call('/api/2fa/skip', { method: 'POST', token: enrol5 })).s === 401, 'the same enrol session cannot skip twice');
+ok((await call('/api/2fa/skip', { method: 'POST', token: tok5 })).s === 401, 'a full session cannot call skip');
+ok((await call('/api/2fa/enable', { method: 'POST', token: enrol5, body: { code: totp(signupSecret5) } })).s === 401, 'spent enrol session cannot enable 2FA either');
+let me5 = (await call('/api/me', { token: tok5 })).d;
+ok(me5.totpEnabled === false && me5.email === email5, 'dashboard reports 2FA is off');
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind === '2fa_skipped'), '2fa_skipped event logged');
+// Admin uses its own admin token; an owner session (with or without 2FA) never opens it
+ok((await call('/api/admin/claims', { token: tok5 })).s === 401 && (await call('/api/admin/events', { token: tok5 })).s === 401, 'password-only owner session cannot reach admin');
+ok((await call('/api/admin/claims')).s === 401 && (await call('/api/admin/claims', { token: ADM })).s === 200, 'admin still needs the admin token');
+// Login after skipping: password alone gives a full session
+ok((await call('/api/login', { method: 'POST', body: { email: email5, authKey: 'wrong' } })).s === 401, 'skipped account: wrong password still rejected');
+r = await call('/api/login', { method: 'POST', body: { email: email5, authKey: k.authKey } });
+ok(r.s === 200 && !r.d.needsEnrol && (await call('/api/me', { token: r.d.token })).s === 200, 'skipped account logs in with password only'); const otherTok5 = r.d.token;
+// Abandoned enrolment (never skipped): login still shows the enrol screen, now with the skip option
+const email6 = `abandon+${Date.now()}@example.com`;
+r = await call('/api/register', { method: 'POST', body: { email: email6, name: 'Abandon Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } }); const sec6 = r.d.totpSecret;
+r = await call('/api/login', { method: 'POST', body: { email: email6, authKey: k.authKey } });
+ok(r.s === 200 && r.d.needsEnrol && r.d.canSkip === true && r.d.totpSecret === sec6 && r.d.otpauth.endsWith(LOGO_PARAM), 'abandoned enrolment: login shows enrol with skip offered');
+ok((await call('/api/me', { token: r.d.token })).s === 401, 'abandoned enrolment: no vault access without enrolling or skipping');
+// Turn 2FA on later from the dashboard: always a fresh secret, then the code is required at login
+r = await call('/api/me/2fa/setup', { method: 'POST', token: tok5 }); const secA = r.d.totpSecret;
+ok(r.s === 200 && secA && secA !== signupSecret5 && r.d.otpauth.includes('secret=' + secA) && r.d.otpauth.endsWith(LOGO_PARAM), 'setup later gives a fresh secret and the logo URI');
+r = await call('/api/me/2fa/setup', { method: 'POST', token: tok5 }); const secB = r.d.totpSecret;
+ok(r.s === 200 && secB !== secA, 'each setup generates a new secret');
+ok((await call('/api/me/2fa/enable', { method: 'POST', token: tok5, body: { code: totp(signupSecret5) } })).s === 400, 'old signup secret is never accepted');
+ok((await call('/api/me/2fa/enable', { method: 'POST', token: tok5, body: { code: totp(secA) } })).s === 400, 'superseded setup secret is not accepted');
+r = await call('/api/me/2fa/enable', { method: 'POST', token: tok5, body: { code: totp(secB) } });
+ok(r.s === 200 && Array.isArray(r.d.recoveryCodes) && r.d.recoveryCodes.length === 10, '2FA turned on later, with 10 recovery codes'); const rec5 = r.d.recoveryCodes;
+me5 = (await call('/api/me', { token: tok5 })).d; ok(me5.totpEnabled === true && me5.recoveryLeft === 10, 'dashboard reports 2FA is on');
+ok((await call('/api/me', { token: otherTok5 })).s === 401, 'other password-only sessions are signed out when 2FA is turned on');
+ok((await call('/api/me/2fa/setup', { method: 'POST', token: tok5 })).s === 409, 'cannot restart setup once 2FA is on');
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind === '2fa_enabled_later'), '2fa_enabled_later event logged');
+ok((await call('/api/login', { method: 'POST', body: { email: email5, authKey: k.authKey } })).s === 401, 'after turning 2FA on, password alone no longer logs in');
+r = await call('/api/login', { method: 'POST', body: { email: email5, authKey: k.authKey, code: totp(secB) } });
+ok(r.s === 200 && !r.d.needsEnrol, 'after turning 2FA on, password plus code logs in');
+ok((await call('/api/admin/claims', { token: r.d.token })).s === 401, 'owner session with 2FA cannot reach admin either');
+// A recovery-code re-enrolment can never be skipped, so 2FA can't be switched off that way
+r = await call('/api/login', { method: 'POST', body: { email: email5, authKey: k.authKey, recovery: rec5[0] } });
+ok(r.s === 200 && r.d.needsEnrol && r.d.canSkip === false, 'recovery re-enrolment does not offer skip');
+ok((await call('/api/2fa/skip', { method: 'POST', token: r.d.token })).s === 403, 'recovery re-enrolment cannot skip');
+r = await call('/api/login', { method: 'POST', body: { email: email5, authKey: k.authKey } });
+ok(r.s === 200 && r.d.needsEnrol && r.d.canSkip === false && (await call('/api/me', { token: r.d.token })).s === 401, 'after a recovery code, password alone still only reaches enrol');
+
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);
