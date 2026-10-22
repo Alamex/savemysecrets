@@ -85,6 +85,8 @@ ok((await call('/api/register', { method: 'POST', body: { email: 'b' + Date.now(
 let r = await call('/api/register', { method: 'POST', body: { email, name: 'Test Owner', phone: '+971500000000', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 ok(r.s === 200 && r.d.totpSecret, 'register');
 const secret = r.d.totpSecret;
+const LOGO_PARAM = '&image=' + encodeURIComponent('https://savemysecrets.com/totp-logo.png');
+ok(typeof r.d.otpauth === 'string' && r.d.otpauth.startsWith('otpauth://totp/Save%20My%20Secrets:') && r.d.otpauth.includes('issuer=Save%20My%20Secrets') && r.d.otpauth.includes('secret=' + secret) && r.d.otpauth.endsWith(LOGO_PARAM), 'otpauth URI keeps issuer and label and includes the logo image param');
 ok((await call('/api/me', { token: r.d.token })).s === 401, 'enrol session cannot reach vault');
 ok((await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: '000000' } })).s === 400, 'wrong TOTP rejected');
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(secret) } });
@@ -245,6 +247,7 @@ ok((await call('/api/logout', { method: 'POST', token: tok3 })).s === 200 && (aw
 ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k.authKey, recovery: 'WRONG-CODE1' } })).s === 401, 'bad recovery code rejected');
 r = await call('/api/login', { method: 'POST', body: { email: email3, authKey: k.authKey, recovery: rec3[0].toLowerCase() } });
 ok(r.s === 200 && r.d.needsEnrol && r.d.totpSecret !== sec3, 'recovery code logs in and forces new 2FA');
+ok(r.d.otpauth.includes('secret=' + r.d.totpSecret) && r.d.otpauth.endsWith(LOGO_PARAM), 're-enrol otpauth URI includes the logo image param');
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); ok(r.s === 200 && r.d.recoveryCodes.length === 10, 're-enrolled with fresh recovery codes');
 ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k.authKey, recovery: rec3[1] } })).s === 401, 'old recovery codes replaced');
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes('recovery code was used')), 'owner emailed when a recovery code is used');

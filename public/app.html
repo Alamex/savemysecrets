@@ -252,8 +252,8 @@ $('btnFb').onclick = async () => {
 };
 
 function showEnrol(secret, otpauth) {
-  // The QR code leaves out the logo address so it stays small enough to scan; a QR failure must never block sign-up
-  const qrText = (otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`).replace(/&image=[^&]*/, '');
+  // The QR code includes the logo address so authenticator apps that support it show our padlock; a QR failure must never block sign-up
+  const qrText = otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`;
   $('qr').innerHTML = ''; try { if (window.QRCode) new QRCode($('qr'), { text: qrText, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }); } catch (e) { $('qr').textContent = 'Use the button or the setup key below.'; }
   $('totpKey').textContent = secret.match(/.{1,4}/g).join(' ');
   $('otpLink').href = otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`;

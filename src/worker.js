@@ -383,7 +383,7 @@ async function api(req, env) {
     await env.DB.prepare(`INSERT INTO users (id,email,name,phone,auth_salt,auth_hash,kdf_salt,totp_secret,invite_code,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
       .bind(id, email.toLowerCase(), name, phone || null, authSalt, await pbkdf2(authKey, authSalt), kdfSalt, secret, code, now()).run();
     const token = await makeSession(env, id, 'enrol', 1);
-    const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent(baseUrl(req, env) + '/icon-512.png')}`;
+    const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
     return json({ token, totpSecret: secret, otpauth });
   }
 
@@ -411,7 +411,7 @@ async function api(req, env) {
     if (!(await allow(env, 'login:' + em, 10, HOUR)) || !(await allow(env, 'loginip:' + ip(req), 30, HOUR))) return slowDown();
     const u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(em).first();
     if (!u || !safeEq(await pbkdf2(body.authKey || '', u.auth_salt), u.auth_hash)) return err('Email or password incorrect', 401);
-    if (!u.totp_enabled) return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: u.totp_secret });
+    if (!u.totp_enabled) return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: u.totp_secret, otpauth: `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${u.totp_secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}` });
     if (body.recovery) {
       // Lost phone: a one-off recovery code replaces the 2FA code, then they set up 2FA again on their new phone
       const h = await sha256hex('rec|' + normRecovery(body.recovery));
@@ -421,7 +421,7 @@ async function api(req, env) {
       await env.DB.prepare('UPDATE users SET recovery_hashes=?, totp_secret=?, totp_enabled=0 WHERE id=?').bind(JSON.stringify(list.filter(x => x !== h)), secret, u.id).run();
       await logEvent(env, u.id, 'recovery_code_used', '');
       await sendEmail(env, u.id, u.email, `A recovery code was used on your account`, `<p>Hi ${esc(u.name)},</p><p>Someone, hopefully you, logged in with one of your recovery codes and is setting up two-factor login on a new phone.</p><p><b>If this wasn't you, reply to this email straight away.</b></p>`);
-      const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent(baseUrl(req, env) + '/icon-512.png')}`;
+      const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
       return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: secret, otpauth });
     }
     if (!(await totpVerify(u.totp_secret, body.code))) return err('Two-factor code incorrect', 401);
