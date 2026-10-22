@@ -14,7 +14,7 @@ const { SMS } = ctx;
 let fails = 0, r0; const ok = (c, m) => { console.log((c ? 'PASS ' : 'FAIL ') + m); if (!c) fails++; };
 // Registrations and claimant code requests are rate limited per client IP (worker.js reads CF-Connecting-IP).
 // Give each such request its own test IP so the suite doesn't trip the 10/hour limits; per-email limits still apply.
-let ipSeq = 0; const ipFor = p => ['/api/register', '/api/claimant/start'].includes(p) ? { 'cf-connecting-ip': `198.51.100.${(++ipSeq % 250) + 1}` } : {};
+let ipSeq = 0; const ipFor = p => ['/api/register', '/api/claimant/start', '/api/invite/check'].includes(p) ? { 'cf-connecting-ip': `198.51.100.${(++ipSeq % 250) + 1}` } : {};
 async function call(p, { method = 'GET', body, token, raw } = {}) {
   const r = await fetch(B + p, { method, redirect: 'manual', headers: { ...ipFor(p), ...(body && !raw ? { 'content-type': 'application/json' } : {}), ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: raw || (body ? JSON.stringify(body) : undefined) });
   const t = await r.text(); let d; try { d = JSON.parse(t); } catch { d = t; } return { s: r.status, d, h: r.headers };
@@ -310,11 +310,32 @@ ok(tieRes1.s === 200 && tieRes1.d.sent === 1, 'personal invite sent');
 const tieEv1 = (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind.startsWith('email') && e.detail.includes(tieEmail1) && e.detail.includes('approved'));
 const tieCode1 = tieEv1 ? JSON.parse(tieEv1.detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
 ok(tieCode1, 'personal code extracted');
+{ const h = JSON.parse(tieEv1.detail).html; ok(h.includes('Create your vault') && !h.replace(/href="[^"]*"/g, '').includes(tieCode1) && !/invite code/i.test(h), 'approval email says "Create your vault" and shows no code to type'); }
+const GENERIC_INV = "That invite code isn't valid or has been used up.", USED_INV = 'This invite has already been used to create an account. Log in to carry on.';
+let ic = await call('/api/invite/check', { method: 'POST', body: { code: tieCode1, email: tieEmail2 } });
+ok(ic.s === 400 && !ic.d.used && ic.d.error === GENERIC_INV && !JSON.stringify(ic.d).includes('tie1'), 'link with the wrong email fails at check time with the generic message, tied email not revealed');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: tieCode1, email: tieEmail1.toUpperCase() } })).s === 200 && (await call('/api/invite/check', { method: 'POST', body: { code: tieCode1 } })).s === 200, 'unused personal code passes with its own email or no email');
 const kdfSaltTie = SMS.b64(SMS.rand(16));
 const kTieWrong = await SMS.deriveFromPassword('password tie wrong', kdfSaltTie);
 ok((await call('/api/register', { method: 'POST', body: { email: tieEmail2, name: 'Wrong Email', authKey: kTieWrong.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } })).s === 403, 'invite code refused for mismatched email');
 const kTieRight = await SMS.deriveFromPassword('password tie right', kdfSaltTie);
 ok((await call('/api/register', { method: 'POST', body: { email: tieEmail1, name: 'Right Email', authKey: kTieRight.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } })).s === 200, 'invite code accepted for matching email');
+// Used invite (account created, then abandoned at the 2FA screen): reopening the link points to Log in
+ic = await call('/api/invite/check', { method: 'POST', body: { code: tieCode1, email: tieEmail1 } });
+ok(ic.s === 400 && ic.d.used === true && ic.d.ok === false && ic.d.error === USED_INV, 'used invite link gets the distinct "log in to carry on" response');
+ic = await call('/api/invite/check', { method: 'POST', body: { code: tieCode1.toLowerCase() } });
+ok(ic.d.used === true && ic.d.error === USED_INV && Object.keys(ic.d).sort().join() === 'error,ok,used', 'used invite without email: same response, nothing else returned');
+ic = await call('/api/invite/check', { method: 'POST', body: { code: tieCode1, email: tieEmail2 } });
+ok(ic.s === 400 && !ic.d.used && ic.d.error === GENERIC_INV, 'used invite with a different email stays generic');
+ic = await call('/api/invite/check', { method: 'POST', body: { code: 'NOSUCHCODE' + Date.now() } });
+ok(ic.s === 400 && !ic.d.used && ic.d.error === GENERIC_INV, 'unknown code stays generic');
+const kTieAgain = await SMS.deriveFromPassword('password tie again', kdfSaltTie);
+let rr = await call('/api/register', { method: 'POST', body: { email: 'tie3+' + Date.now() + '@x.com', name: 'Again', authKey: kTieAgain.authKey, kdfSalt: kdfSaltTie, inviteCode: one } });
+ok(rr.s === 403 && rr.d.used === true && rr.d.error === USED_INV, 'register with a used (untied) code returns the used response');
+rr = await call('/api/register', { method: 'POST', body: { email: tieEmail2, name: 'Wrong Again', authKey: kTieAgain.authKey, kdfSalt: kdfSaltTie, inviteCode: tieCode1 } });
+ok(rr.s === 403 && !rr.d.used && rr.d.error === GENERIC_INV, 'register with a used code tied to someone else stays generic');
+rr = await call('/api/login', { method: 'POST', body: { email: tieEmail1, authKey: kTieRight.authKey } });
+ok(rr.s === 200 && rr.d.needsEnrol === true && rr.d.canSkip === true && !!rr.d.totpSecret, 'account abandoned at 2FA logs in and resumes enrolment, with skip available');
 // Re-approve the same person: old unused codes deactivated
 const reApproveEmail = 'reapprove+' + Date.now() + '@x.com';
 await call('/api/waitlist', { method: 'POST', body: { email: reApproveEmail, source: 'test-reapprove' } });
@@ -325,7 +346,8 @@ await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { e
 const evs2 = (await call('/api/admin/events', { token: ADM })).d;
 const code2nd = evs2.filter(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')).map(e => JSON.parse(e.detail).html.match(/code=([A-Z0-9]{6})/)?.[1]).filter(c => c !== code1st)[0];
 ok(code2nd && code1st !== code2nd, 're-approval issues a new code');
-ok((await call('/api/invite/check', { method: 'POST', body: { code: code1st } })).s === 400, 'first code deactivated after re-approval');
+ic = await call('/api/invite/check', { method: 'POST', body: { code: code1st } });
+ok(ic.s === 400 && !ic.d.used && ic.d.error === GENERIC_INV, 'first code deactivated after re-approval (generic, not "used")');
 ok((await call('/api/invite/check', { method: 'POST', body: { code: code2nd } })).s === 200, 'second code still valid');
 const wlCheck = await call('/api/admin/waitlist', { token: ADM });
 const reApproveRow = wlCheck.d.find(r => r.email === reApproveEmail);
