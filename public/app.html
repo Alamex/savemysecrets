@@ -203,10 +203,21 @@ document.addEventListener('focusout', e => { if (e.target.type === 'tel' && e.ta
 document.addEventListener('input', e => { if (e.target.type === 'tel' && /^\+\+/.test(e.target.value)) e.target.value = e.target.value.replace(/^\++/, '+'); });
 const show = v => ['vAuth','vEnrol','vRec','vSeal','vCode','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
+// The approval email's link is the invite: people arriving from it never see an invite code.
+const LINK_USED = 'You already have an account. Log in to carry on.';
+const LINK_BAD = 'This link has expired or is no longer valid. Request access and we\'ll email you a new one.';
+let fromEmailLink = false;
+// A code that already created an account (e.g. reopening the email link after leaving at the 2FA step): go to Log in
+function showUsedInvite(email, msg) {
+  inviteCode = null; document.querySelector('#vAuth .tabs [data-t=login]').click();
+  if (email) $('lEmail').value = email;
+  $('flash').textContent = msg || LINK_USED; $('flash').className = 'notice';
+  (email ? $('lPw') : $('lEmail')).focus();
+}
 async function call(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Something went wrong');
+  if (!r.ok) { const e = new Error(d.error || 'Something went wrong'); e.data = d; throw e; }
   return d;
 }
 const post = (p, b) => call(p, { method: 'POST', body: JSON.stringify(b) });
@@ -278,14 +289,15 @@ $('fInvite').onsubmit = async e => {
   e.preventDefault(); flash();
   try { await post('/api/invite/check', { code: $('iCode').value }); inviteCode = $('iCode').value.trim();
     $('inviteOk').textContent = 'Invite accepted. Create your vault below.'; $('fInvite').classList.add('hide'); $('fSignup').classList.remove('hide');
-  } catch (x) { flash(x.message); }
+  } catch (x) { if (x.data?.used) showUsedInvite('', x.message); else flash(x.message); }
 };
 $('showCodeLink').onclick = e => { e.preventDefault(); $('noCodeMsg').classList.add('hide'); $('codeEntry').classList.remove('hide'); };
-// ?code=CODE or ?invite=CODE (from invite email) opens straight on sign-up with the code filled in and validated
+// ?code=CODE&email=... (the approval email's link) or ?code=CODE / ?invite=CODE opens straight on sign-up, validated behind the scenes
 { const qs = new URLSearchParams(location.search), q = qs.get('code') || qs.get('invite'), prefillEmail = qs.get('email'); 
+  fromEmailLink = !!(q && prefillEmail);
   if (q) { 
     $('iCode').value = q; 
-    post('/api/invite/check', { code: q }).then(() => {
+    post('/api/invite/check', { code: q, email: prefillEmail || '' }).then(() => {
       inviteCode = q;
       document.querySelector('#vAuth .tabs [data-t=signup]').click();
       $('inviteOk').textContent = 'You\'re approved. Create your vault.';
@@ -293,7 +305,10 @@ $('showCodeLink').onclick = e => { e.preventDefault(); $('noCodeMsg').classList.
       $('fSignup').classList.remove('hide');
       if (prefillEmail) $('sEmail').value = prefillEmail;
     }).catch(err => {
+      if (err.data?.used) return showUsedInvite(prefillEmail, fromEmailLink ? LINK_USED : err.message);
       document.querySelector('#vAuth .tabs [data-t=signup]').click();
+      // From the email link: no invite-code field, just a way to ask for a new link
+      if (fromEmailLink) { $('showCodeLink').parentElement.classList.add('hide'); $('flash').textContent = LINK_BAD; $('flash').className = 'notice'; return; }
       $('noCodeMsg').classList.add('hide');
       $('codeEntry').classList.remove('hide');
       flash(err.message);
@@ -311,7 +326,10 @@ $('fSignup').onsubmit = async e => {
     const k = await SMS.deriveFromPassword($('sPw').value, kdfSalt); ownerKey = k.ownerKey;
     const d = await post('/api/register', { name: $('sName').value, email: $('sEmail').value, phone: $('sPhone').value, authKey: k.authKey, kdfSalt, inviteCode });
     token = d.token; enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip);
-  } catch (x) { flash(x.message); } busy(btn, false, 'Create my vault');
+  } catch (x) {
+    if (x.data?.used) showUsedInvite($('sEmail').value, fromEmailLink ? LINK_USED : x.message);
+    else flash(fromEmailLink && /invite code/i.test(x.message) ? LINK_BAD : x.message);
+  } busy(btn, false, 'Create my vault');
 };
 $('fLogin').onsubmit = async e => {
   e.preventDefault(); const btn = e.submitter; flash(); busy(btn, true, 'Unlocking...');

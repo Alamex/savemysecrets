@@ -175,6 +175,21 @@ const normCode = c => String(c || '').toUpperCase().replace(/[^A-Z0-9]/g, '').sl
 async function validInvite(env, c) {
   return env.DB.prepare('SELECT code FROM invites WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)').bind(normCode(c), now()).first();
 }
+// UX only (validity rules are unchanged): a real, unexpired code whose uses are all spent means someone already
+// created an account with it, typically the same person coming back from their email link, so point them to Log in.
+// If an email is given and the code is tied to a different one, say nothing beyond the generic message.
+const INVITE_BAD = 'That invite code isn\'t valid or has been used up.';
+const INVITE_USED = 'This invite has already been used to create an account. Log in to carry on.';
+async function inviteUsed(env, c, email) {
+  const r = await env.DB.prepare('SELECT approved_email FROM invites WHERE code=? AND uses>=max_uses AND (expires_at IS NULL OR expires_at>?)').bind(normCode(c), now()).first();
+  if (!r) return false;
+  return !(email && r.approved_email && r.approved_email.toLowerCase() !== String(email).trim().toLowerCase());
+}
+async function inviteEmailMismatch(env, c, email) {
+  if (!email) return false;
+  const r = await env.DB.prepare('SELECT approved_email FROM invites WHERE code=?').bind(normCode(c)).first();
+  return !!(r && r.approved_email && r.approved_email.toLowerCase() !== String(email).trim().toLowerCase());
+}
 
 // ---------- sessions ----------
 const otpauthUri = (email, secret) => `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
@@ -362,7 +377,10 @@ async function api(req, env) {
   if (p === '/api/invite/check' && m === 'POST') {
     if (!(await allow(env, 'inv:' + ip(req), 20, HOUR))) return slowDown();
     const inv = await validInvite(env, body.code);
-    return inv ? json({ ok: true }) : json({ ok: false, error: 'That invite code isn\'t valid or has been used up.' }, 400);
+    // A link for a different email than the code was issued to gets the generic message (the tied email is never revealed)
+    if (inv && !(await inviteEmailMismatch(env, body.code, body.email))) return json({ ok: true });
+    if (!inv && (await inviteUsed(env, body.code, body.email))) return json({ ok: false, used: true, error: INVITE_USED }, 400);
+    return json({ ok: false, error: INVITE_BAD }, 400);
   }
 
   // Step 1 of signup: get a fresh KDF salt so the client can derive keys before registering
@@ -376,12 +394,12 @@ async function api(req, env) {
     const code = normCode(body.inviteCode);
     // Check the code exists and is valid
     const invite = await env.DB.prepare('SELECT approved_email FROM invites WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)').bind(code, now()).first();
-    if (!invite) return err('That invite code isn\'t valid or has been used up.', 403);
+    if (!invite) return (await inviteUsed(env, code, email)) ? json({ error: INVITE_USED, used: true }, 403) : err(INVITE_BAD, 403);
     // For personal codes (with approved_email), verify the email matches
     if (invite.approved_email && invite.approved_email.toLowerCase() !== email.toLowerCase()) return err('That invite code isn\'t valid or has been used up.', 403);
     // Atomic: only succeeds if the code is still valid
     const used = await env.DB.prepare(`UPDATE invites SET uses=uses+1 WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)`).bind(code, now()).run();
-    if (!used.meta.changes) return err('That invite code isn\'t valid or has been used up.', 403);
+    if (!used.meta.changes) return (await inviteUsed(env, code, email)) ? json({ error: INVITE_USED, used: true }, 403) : err(INVITE_BAD, 403);
     const id = rid(12), authSalt = b64(crypto.getRandomValues(new Uint8Array(16)));
     const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
     await env.DB.prepare(`INSERT INTO users (id,email,name,phone,auth_salt,auth_hash,kdf_salt,totp_secret,invite_code,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
@@ -829,8 +847,8 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
         // 2. Send the email
         const link = `${baseUrl(req, env)}/app?code=${encodeURIComponent(code)}&email=${encodeURIComponent(e)}`;
         const ok = await sendEmail(env, null, e, 'You\'re approved for Save My Secrets', 
-          `<p>Hi,</p><p>You asked for early access to Save My Secrets, an encrypted vault that passes your important information to the people you choose. You're approved for the alpha.</p>
-${button(link, 'Set up your vault')}<p style="color:#6b7280;font-size:14px">This link is just for you and works once.</p><p style="color:#6b7280;font-size:14px">Didn't ask for this? Just ignore this email.</p><p>Neil<br>Save My Secrets</p>`);
+          `<p>Hi,</p><p>You asked for early access to Save My Secrets, an encrypted vault that passes your important information to the people you choose. You're approved for the alpha. Click the button below to create your vault.</p>
+${button(link, 'Create your vault')}<p style="color:#6b7280;font-size:14px">This link is just for you and works once.</p><p style="color:#6b7280;font-size:14px">Didn't ask for this? Just ignore this email.</p><p>Neil<br>Save My Secrets</p>`);
         if (!ok) {
           // 3. Send failed: switch off the new code only; any earlier codes keep working
           await env.DB.prepare('UPDATE invites SET active=0 WHERE code=?').bind(code).run();
