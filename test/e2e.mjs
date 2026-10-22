@@ -94,13 +94,16 @@ ok(r.s === 200, '2FA enabled'); let tok = r.d.token;
 ok(Array.isArray(r.d.recoveryCodes) && r.d.recoveryCodes.length === 10, '10 recovery codes issued');
 
 const contents = { letter: 'Dear family, love you.', items: [{ type: 'Seed phrase / wallet', title: 'Cold wallet', body: 'abandon ability able about above absent absorb abstract absurd abuse access accident' }] };
-const v = await SMS.createVault(k.ownerKey, contents, 'sovereign');
-ok(/^[A-Z2-9]{4}(-[A-Z2-9]{4}){7}$/.test(v.legacyCode), 'legacy code format ' + v.legacyCode);
+const v = await SMS.createVault(k.ownerKey, contents);
+ok(v.upload.releaseMode === 'standard' && !('legacyCode' in v), 'new vaults are standard mode, with no printed code');
+ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, releaseMode: 'sovereign' } })).s === 400, 'printed-code mode can no longer be enabled');
+ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, releaseMode: undefined } })).s === 400, 'sealing must name the standard mode');
+ok(!(await call('/api/me', { token: tok })).d.hasRelease, 'rejected seal stored nothing');
 ok((await call('/api/me/vault', { method: 'POST', token: tok, body: v.upload })).s === 200, 'vault sealed');
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(email) && e.detail.includes('Your vault is set up')), 'welcome email after sealing');
-// server must not be able to decrypt with S alone
-let serverAlone = true; try { await SMS.unlockRelease(v.upload.serverShare, v.upload.wrappedRelease, SMS.codeEncode(new Uint8Array(20)), 'sovereign'); } catch { serverAlone = false; }
-ok(!serverAlone, 'server share alone cannot open vault');
+ok((await call('/api/me', { token: tok })).d.releaseMode === 'standard', 'vault stored in standard mode');
+let otherShareOpens = true; try { await SMS.unlockRelease(SMS.b64(SMS.rand(32)), v.upload.wrappedRelease); } catch { otherShareOpens = false; }
+ok(!otherShareOpens, 'a different server share cannot open the vault');
 
 ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nom Inee', email: 'nominee@example.com', phone: '+447700900000', relationship: 'wife' } })).s === 200, 'nominee added');
 ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'No Plus', email: 'noplus@example.com', phone: '07700 900000' } })).s === 400, 'phone without country code refused');
@@ -192,10 +195,10 @@ ok(!(await esc(vEnds - DAY)).includes('released'), 'not released before final ch
 ok((await esc(vEnds + 1000)).includes('released'), 'released after final check');
 const pkg = (await call('/api/claim/status', { token: ct })).d.package;
 ok(pkg && pkg.serverShare, 'package delivered to nominee');
-let wrongCodeOpens = true; try { await SMS.unlockRelease(pkg.serverShare, pkg.wrappedRelease, SMS.codeEncode(SMS.rand(20)), pkg.releaseMode); } catch { wrongCodeOpens = false; }
-ok(!wrongCodeOpens, 'wrong legacy code fails');
-const Kn = await SMS.unlockRelease(pkg.serverShare, pkg.wrappedRelease, v.legacyCode.toLowerCase().replace(/-/g, ' '), pkg.releaseMode);
-ok((await SMS.decVault(Kn, pkg.vault)).items[0].title === 'Cold wallet', 'nominee opens vault with legacy code (lower case, spaces)');
+ok(pkg.releaseMode === 'standard' && !('legacyCode' in pkg), 'standard release package, no printed code needed');
+const Kn = await SMS.unlockRelease(pkg.serverShare, pkg.wrappedRelease);
+const opened = await SMS.decVault(Kn, pkg.vault);
+ok(opened.items[0].title === 'Cold wallet' && opened.letter === 'Dear family, love you.', 'nominee opens the vault, existing letter included');
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes('nominee@example.com') && e.detail.includes('ready for you')), 'nominee emailed when the vault is released');
 const nt2 = await claimant('Nom Inee', 'nominee@example.com');
 r = await call('/api/claim/find', { method: 'POST', token: nt2, body: { ownerEmail: email } });
@@ -205,7 +208,7 @@ ok(r.s === 200 && r.d.status === 'released' && (await call('/api/claim/status', 
 const email2 = `veto+${Date.now()}@example.com`; const k2Veto = await SMS.deriveFromPassword(pw, kdfSalt);
 r = await call('/api/register', { method: 'POST', body: { email: email2, name: 'Alive Owner', authKey: k2Veto.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tok2 = r.d.token;
-await call('/api/me/vault', { method: 'POST', token: tok2, body: (await SMS.createVault(k2Veto.ownerKey, { items: [] }, 'standard')).upload });
+await call('/api/me/vault', { method: 'POST', token: tok2, body: (await SMS.createVault(k2Veto.ownerKey, { items: [] })).upload });
 await call('/api/me/policy', { method: 'POST', token: tok2, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 7 } });
 await call('/api/me/nominees', { method: 'POST', token: tok2, body: { name: 'Bro', email: 'bro@example.com' } });
 const me2 = (await call('/api/me', { token: tok2 })).d; const uid2 = me2.nominees[0].user_id;
@@ -231,7 +234,7 @@ ok((await call(JSON.parse(older.detail).html.match(/href="([^"]+)"/)[1].replace(
 const email3 = `rej+${Date.now()}@example.com`;
 r = await call('/api/register', { method: 'POST', body: { email: email3, name: 'Third Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 const sec3 = r.d.totpSecret; r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(sec3) } }); let tok3 = r.d.token; const rec3 = r.d.recoveryCodes;
-await call('/api/me/vault', { method: 'POST', token: tok3, body: (await SMS.createVault(k.ownerKey, { items: [] }, 'standard')).upload });
+await call('/api/me/vault', { method: 'POST', token: tok3, body: (await SMS.createVault(k.ownerKey, { items: [] })).upload });
 await call('/api/me/policy', { method: 'POST', token: tok3, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 6, veto_days: 7 } });
 await call('/api/me/nominees', { method: 'POST', token: tok3, body: { name: 'Sis', email: 'sis@example.com' } });
 const next3 = (await call('/api/me', { token: tok3 })).d.nextCheckin;
@@ -257,7 +260,7 @@ ok((await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: 
 const email4 = `q+${Date.now()}@example.com`;
 r = await call('/api/register', { method: 'POST', body: { email: email4, name: 'Quentin Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } }); const sec4 = r.d.totpSecret;
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(sec4) } }); const tok4 = r.d.token;
-const v4 = await SMS.createVault(k.ownerKey, { letter: 'For Ana', items: [{ title: 'Deeds', body: 'With the solicitor' }] }, 'standard');
+const v4 = await SMS.createVault(k.ownerKey, { letter: 'For Ana', items: [{ title: 'Deeds', body: 'With the solicitor' }] });
 await call('/api/me/vault', { method: 'POST', token: tok4, body: v4.upload });
 await call('/api/me/policy', { method: 'POST', token: tok4, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 2, veto_days: 3 } });
 const nA = (await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Ana Nominee', email: 'qa@example.com', relationship: 'wife' } })).d.id;
@@ -357,7 +360,7 @@ ok(reApproveRow && reApproveRow.invited_at && reApproveRow.invite_code === code2
 const emailUnapp = `unapp+${Date.now()}@example.com`;
 r = await call('/api/register', { method: 'POST', body: { email: emailUnapp, name: 'Unapproved Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tokUnapp = r.d.token;
-await call('/api/me/vault', { method: 'POST', token: tokUnapp, body: (await SMS.createVault(k.ownerKey, { items: [] }, 'standard')).upload });
+await call('/api/me/vault', { method: 'POST', token: tokUnapp, body: (await SMS.createVault(k.ownerKey, { items: [] })).upload });
 await call('/api/me/policy', { method: 'POST', token: tokUnapp, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 3 } });
 await call('/api/me/nominees', { method: 'POST', token: tokUnapp, body: { name: 'Claimant Unapp', email: 'claimunapp@example.com' } });
 const meUnapp = (await call('/api/me', { token: tokUnapp })).d; const uidUnapp = meUnapp.nominees[0].user_id;

@@ -28,7 +28,7 @@ You can verify this in `public/crypto.js` (all encryption) and `public/app.html`
 
 **Stated plainly, the limits:**
 - Answers are words, not long random codes. Anyone with both our database and our Worker secret (including us, in theory) could try guessing them offline. Choose answers nobody could guess or look up.
-- Until every nominee has questions, we hold a copy we could open (standard mode). An optional printed-code mode also exists.
+- Until every nominee has questions, we hold a copy we could open (standard mode).
 - The website delivers the encryption code, so you are trusting the code we serve. It is published here so it can be checked.
 - If none of a nominee's answers can be recalled, that nominee cannot open the vault. That is deliberate.
 

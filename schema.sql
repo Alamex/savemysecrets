@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS users (
   wrapped_owner TEXT,               -- AES-GCM(K_owner(password), K_vault)
   wrapped_release TEXT,             -- AES-GCM(HKDF(S || L), K_vault)
   server_share TEXT,                -- S, released only after verification
-  release_mode TEXT DEFAULT 'sovereign', -- sovereign = needs printed legacy code; standard = server can release alone
+  release_mode TEXT DEFAULT 'sovereign', -- standard = server can release alone; questions = only nominees' answers open it. 'sovereign' (retired printed-code option) is never written by sealing any more; the default only marks unsealed accounts
   -- policy
   checkin_days INTEGER DEFAULT 90,
   grace_weeks INTEGER DEFAULT 6,

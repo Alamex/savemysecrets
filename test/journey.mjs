@@ -32,11 +32,12 @@ await page.waitForSelector('#vRec:not(.hide)'); const codes = (await page.textCo
 ok(await page.isDisabled('#btnRecDone'), 'cannot continue until codes confirmed stored');
 await page.check('#recOk'); await page.click('#btnRecDone');
 // 2. Seal the vault
-await page.waitForSelector('#vSeal:not(.hide)'); await page.fill('#sealTitle', 'Email login'); await page.fill('#sealBody', 'user: journey / pass: correct horse'); await page.click('#btnSeal');
+await page.waitForSelector('#vSeal:not(.hide)'); await shot('1a-first-secret'); ok(await page.getAttribute('#sealTitle', 'placeholder') === null && (await page.locator('#sealBody').boundingBox()).height >= 200 && await page.locator('#extraCode').count() === 0, 'first-secret form: no title placeholder, larger details box, no printed-code option'); await page.fill('#sealTitle', 'Email login'); await page.fill('#sealBody', 'user: journey / pass: correct horse'); await page.click('#btnSeal');
 await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok(true, 'vault sealed, dashboard shown'); await shot('1-dash');
 ok(!(await page.isVisible('#tfaBanner')), 'no 2FA banner when 2FA is on');
-// 3. Use the vault: letter + a second item, save
-await page.fill('#letter', 'Dear family, the house deeds are with Sarah.');
+// 3. Use the vault: a second item, save. The letter field is gone; simulate a vault saved before then, which has a letter
+ok(await page.locator('#letter').count() === 0 && !/Letter to your nominees/.test(await page.textContent('#vDash')), 'no letter field on the vault screen');
+await page.evaluate(async () => { vault.letter = 'Dear family, the house deeds are with Sarah.'; await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) }); });
 await page.click('summary:has-text("Add a secret")'); await page.selectOption('#iType', 'Document location'); await page.fill('#iTitle', 'House deeds'); await page.fill('#iBody', 'Sarah Jones, solicitor'); await page.click('#btnAdd');
 await page.click('#btnSave'); await page.waitForTimeout(2500); await shot('2-saved');
 // 4. Nominees and rules
@@ -71,7 +72,7 @@ if (await page.isVisible('#btnFine')) { await page.click('#btnFine'); await page
 await page.click('#logout'); await page.waitForSelector('#vAuth:not(.hide)'); ok(true, 'logged out');
 await page.fill('#lEmail', email); await page.fill('#lPw', pw); await page.fill('#lCode', totp(secret)); await page.click('#fLogin button');
 await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok(true, 'logged back in with password + 2FA');
-ok((await page.inputValue('#letter')).includes('house deeds'), 'letter decrypted after re-login');
+ok((await page.evaluate(() => vault.letter)) === 'Dear family, the house deeds are with Sarah.', 'existing letter kept after adding a secret and saving, and after re-login');
 const vtext = await page.textContent('#items'); ok(vtext.includes('Email login') && vtext.includes('House deeds'), 'both secrets decrypted after re-login');
 await page.click('[data-t=noms]'); ok((await page.$$('#nomList .item')).length === 2, 'nominees persisted');
 await page.click('[data-t=rules]'); ok(await page.inputValue('#rDays') === '180' && await page.inputValue('#rWeeks') === '8' && await page.inputValue('#rVeto') === '14', 'rules persisted');

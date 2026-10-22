@@ -16,7 +16,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261021b">
+<link rel="stylesheet" href="/style.css?v=20261022a">
 <script src="/crypto.js"></script>
 </head>
 <body>
@@ -72,7 +72,6 @@
 <div id="s6" class="hide">
   <h2>Access released</h2>
   <p class="muted" id="s6msg"></p>
-  <div id="codeWrap"><label>Code (from the card or letter you were given)</label><input id="cLegacy" placeholder="32 letters and numbers" autocomplete="off"></div>
   <div id="qWrap" class="hide"><p class="muted" id="qIntro"></p><div id="qList"></div><p class="small muted">You need two of the three. Capitals, spaces and accents don't matter. Your answers stay on this device: we never see them.</p></div>
   <p></p><button class="accent" id="btnOpen" style="width:100%">Open the vault</button>
   <div id="vaultOut"></div>
@@ -134,7 +133,7 @@ async function checkStatus() {
   const msg = t => { $('s5msg').textContent = t; step('s5'); };
   if (d.status === 'released') { pkg = d.package; $('s6msg').textContent = `${pkg.name}'s vault has been released to you.`;
     const qm = pkg.releaseMode === 'questions';
-    $('codeWrap').classList.toggle('hide', pkg.releaseMode === 'standard' || qm); $('qWrap').classList.toggle('hide', !qm);
+    $('qWrap').classList.toggle('hide', !qm);
     if (qm) { $('qIntro').textContent = `${pkg.name.split(' ')[0]} left three questions for you. Their answers are the key.`;
       $('qList').innerHTML = pkg.questions.map((q, i) => `<label>${esc(q)}</label><input id="qa${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">`).join(''); waitNote(pkg.retryAt); }
     step('s6'); }
@@ -169,13 +168,13 @@ $('btnOpen').onclick = async () => {
   try {
     let K, vaultCt = pkg.vault;
     if (pkg.releaseMode === 'questions') { const r = await openWithAnswers(); if (!r) return; K = r.K; vaultCt = r.vault; }
-    else K = await SMS.unlockRelease(pkg.serverShare, pkg.wrappedRelease, $('cLegacy').value, pkg.releaseMode);
+    else K = await SMS.unlockRelease(pkg.serverShare, pkg.wrappedRelease);
     const v = await SMS.decVault(K, vaultCt); const out = $('vaultOut'); out.innerHTML = ''; $('qWrap').classList.add('hide'); $('btnOpen').classList.add('hide');
     const add = (title, body) => { const d = document.createElement('div'); d.className = 'item'; if (title) { const b = document.createElement('b'); b.textContent = title; d.appendChild(b); }
       const p = document.createElement('div'); p.style.whiteSpace = 'pre-wrap'; p.textContent = body; d.appendChild(p); out.appendChild(d); };
     if (v.letter) add('A letter for you', v.letter);
     (v.items || []).forEach(it => add(it.title, it.body));
-  } catch (x) { flash(pkg.releaseMode === 'questions' ? 'Something went wrong opening the vault. Please contact support@savemysecrets.com.' : 'That code did not open the vault. Check it carefully, letter by letter.'); }
+  } catch (x) { flash('Something went wrong opening the vault. Please contact support@savemysecrets.com.'); }
 };
 if (token) checkStatus().catch(() => { sessionStorage.removeItem('claimToken'); token = null; });
 else if (ctoken) { if (u) find({ u }).catch(x => flash(x.message)); else step('sFind'); }
