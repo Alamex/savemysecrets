@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
   kdf_salt TEXT NOT NULL,           -- client KDF salt (public)
   totp_secret TEXT,                 -- base32, null until 2FA enrolled
   totp_enabled INTEGER DEFAULT 0,
+  totp_skipped_at INTEGER,         -- set when the owner chose "Skip for now" at signup; cleared when 2FA is turned on
   invite_code TEXT,
   recovery_hashes TEXT,             -- SHA-256 of one-off recovery codes
   link_used_issue INTEGER DEFAULT 0, -- check-in links issued at or before this are spent

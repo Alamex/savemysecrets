@@ -26,6 +26,7 @@ await page.waitForSelector('#fSignup:not(.hide)'); ok(true, 'invite accepted');
 await page.fill('#sName', 'Journey Tester'); await page.fill('#sEmail', email); await page.click('#sPhone'); await page.keyboard.type('+971 50 000 0009'); ok(await page.inputValue('#sPhone') === '+971 50 000 0009', 'typing + into the phone field does not double it');
 await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
 await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }).catch(async e => { console.log('   flash:', await page.textContent('#flash')); throw e; }); await shot('0-2fa'); ok((await page.getAttribute('#otpLink', 'href')).startsWith('otpauth://'), 'tap-to-add authenticator link present'); ok((await page.getAttribute('#otpLink', 'href')).includes('&image=https%3A%2F%2Fsavemysecrets.com%2Ftotp-logo.png'), 'otpauth link includes the logo image param'); ok(await page.locator('#qr canvas, #qr img').count() > 0, 'QR code rendered'); const secret = (await page.textContent('#totpKey')).trim(); ok(secret.length >= 16, '2FA key shown');
+ok(await page.isVisible('#skipLink') && (await page.textContent('#skipLink')).trim() === 'Skip for now (not recommended)', 'signup enrol screen offers a low-key skip link'); ok(!(await page.isVisible('#skipConfirm')), 'skip confirm hidden until asked');
 await page.fill('#eCode', totp(secret)); await page.click('#fEnrol button');
 await page.waitForSelector('#vRec:not(.hide)'); const codes = (await page.textContent('#vRec')).match(/[A-Z0-9]{5}-[A-Z0-9]{5}/g); ok(codes?.length === 10, '10 recovery codes shown');
 ok(await page.isDisabled('#btnRecDone'), 'cannot continue until codes confirmed stored');
@@ -33,6 +34,7 @@ await page.check('#recOk'); await page.click('#btnRecDone');
 // 2. Seal the vault
 await page.waitForSelector('#vSeal:not(.hide)'); await page.fill('#sealTitle', 'Email login'); await page.fill('#sealBody', 'user: journey / pass: correct horse'); await page.click('#btnSeal');
 await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok(true, 'vault sealed, dashboard shown'); await shot('1-dash');
+ok(!(await page.isVisible('#tfaBanner')), 'no 2FA banner when 2FA is on');
 // 3. Use the vault: letter + a second item, save
 await page.fill('#letter', 'Dear family, the house deeds are with Sarah.');
 await page.click('summary:has-text("Add a secret")'); await page.selectOption('#iType', 'Document location'); await page.fill('#iTitle', 'House deeds'); await page.fill('#iBody', 'Sarah Jones, solicitor'); await page.click('#btnAdd');
@@ -81,8 +83,49 @@ ok(!(await page.isVisible('#vDash')), 'wrong password refused');
 // 7. Lost phone: recovery code, set up 2FA again, back in with vault intact
 await page.goto(B + '/app'); await page.fill('#lEmail', email); await page.fill('#lPw', pw); await page.click('#toggleRec'); await page.fill('#lRec', codes[0]); await page.click('#fLogin button');
 await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); const s2 = (await page.textContent('#totpKey')).trim(); ok(s2 !== secret, 'recovery code accepted, new 2FA key issued');
+ok(!(await page.isVisible('#skipLink')), 'no skip option when re-enrolling after a recovery code');
 await page.fill('#eCode', totp(s2)); await page.click('#fEnrol button'); await page.waitForSelector('#vRec:not(.hide)'); await page.check('#recOk'); await page.click('#btnRecDone');
 await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok((await page.textContent('#items')).includes('House deeds'), 'vault intact after phone recovery');
 await shot('5-recovered');
+// 8. Optional 2FA: skip at signup, password-only login, then turn 2FA on later from the dashboard
+const inv2 = 'JOURNEYSKIP' + Date.now();
+await fetch(B + '/api/admin/invites', { method: 'POST', headers: { authorization: 'Bearer ' + ADM, 'content-type': 'application/json' }, body: JSON.stringify({ code: inv2, max_uses: 1 }) });
+const email2 = `qa+skip${Date.now()}@example.com`;
+await page.click('#logout'); await page.waitForSelector('#vAuth:not(.hide)');
+await page.goto(B + '/app?invite=' + inv2 + '&email=' + encodeURIComponent(email2)); await page.waitForSelector('#fSignup:not(.hide)');
+await page.fill('#sName', 'Skip Tester'); await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
+await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); await page.locator('#skipLink').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/j-6-skip-link.png` });
+await page.click('#skipLink'); await page.waitForSelector('#skipConfirm:not(.hide)');
+ok((await page.textContent('#skipConfirm')).includes('Without 2FA, anyone who learns your password can open your vault. You can turn 2FA on later in Settings.'), 'skip confirm explains the risk');
+ok((await page.textContent('#btnSkipYes')).trim() === 'Skip anyway' && (await page.textContent('#btnSkipNo')).trim() === 'Set up 2FA', 'skip confirm buttons');
+await page.locator('#skipConfirm').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/j-7-skip-confirm.png` });
+await page.click('#btnSkipNo'); ok(!(await page.isVisible('#skipConfirm')) && await page.isVisible('#vEnrol'), '"Set up 2FA" goes back to the enrol screen');
+await page.click('#skipLink'); await page.click('#btnSkipYes');
+await page.waitForSelector('#vSeal:not(.hide)', { timeout: 30000 }); ok(!(await page.isVisible('#vRec')), 'skipping shows no recovery codes step');
+await page.fill('#sealTitle', 'Skip test'); await page.fill('#sealBody', 'hello'); await page.click('#btnSeal');
+await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 });
+ok(await page.isVisible('#tfaBanner') && (await page.textContent('#tfaBanner')).includes('Your vault is protected by your password only. Turn on 2FA'), 'dashboard shows the 2FA banner');
+ok(!(await page.textContent('#statusLine')).includes('no recovery codes left'), 'no "no recovery codes left" warning without 2FA');
+await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: `${OUT}/j-8-banner.png` });
+// Password-only login after skipping
+await page.click('#logout'); await page.waitForSelector('#vAuth:not(.hide)');
+await page.fill('#lEmail', email2); await page.fill('#lPw', pw); await page.click('#fLogin button');
+await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok((await page.textContent('#items')).includes('Skip test'), 'skipped account logs in with password only, vault decrypts');
+// Settings: set up 2FA
+await page.click('[data-t=rules]'); ok(await page.isVisible('#btnTfaSetup'), 'settings offer "Set up 2FA"');
+await page.locator('#tfaSettings').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/j-9-settings-setup.png` });
+await page.click('#btnTfaSetup'); await page.waitForSelector('#vEnrol:not(.hide)');
+ok(!(await page.isVisible('#skipLink')), 'no skip link when setting up from settings');
+ok((await page.getAttribute('#otpLink', 'href')).includes('&image=https%3A%2F%2Fsavemysecrets.com%2Ftotp-logo.png') && await page.locator('#qr canvas, #qr img').count() > 0, 'settings setup shows the QR and logo URI');
+await page.screenshot({ path: `${OUT}/j-10-settings-enrol.png` });
+const s3 = (await page.textContent('#totpKey')).trim();
+await page.fill('#eCode', totp(s3)); await page.click('#fEnrol button'); await page.waitForSelector('#vRec:not(.hide)');
+ok(((await page.textContent('#vRec')).match(/[A-Z0-9]{5}-[A-Z0-9]{5}/g) || []).length === 10, 'recovery codes shown after turning 2FA on later');
+await page.check('#recOk'); await page.click('#btnRecDone'); await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 });
+ok(!(await page.isVisible('#tfaBanner')), 'banner gone once 2FA is on'); await page.click('[data-t=rules]'); ok(!(await page.isVisible('#tfaSettings')), 'settings setup hidden once 2FA is on');
+await page.click('#logout'); await page.waitForSelector('#vAuth:not(.hide)');
+await page.fill('#lEmail', email2); await page.fill('#lPw', pw); await page.click('#fLogin button'); await page.waitForTimeout(3000);
+ok(!(await page.isVisible('#vDash')) && (await page.textContent('#flash')).includes('Two-factor code incorrect'), 'after turning 2FA on, the code is required');
+await page.fill('#lCode', totp(s3)); await page.click('#fLogin button'); await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok(true, 'logged in with password + new 2FA code');
 console.log('page errors:', errs.length ? errs : 'none'); console.log('owner:', email);
 await browser.close(); console.log(fails ? `${fails} FAILED` : 'ALL PASSED'); process.exit(fails ? 1 : 0);

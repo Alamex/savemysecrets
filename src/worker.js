@@ -177,6 +177,10 @@ async function validInvite(env, c) {
 }
 
 // ---------- sessions ----------
+const otpauthUri = (email, secret) => `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
+// 2FA is optional but strongly recommended. Skipping is only offered to accounts that have never had 2FA on
+// (no recovery codes were ever issued), so a lost-phone re-enrolment can never be used to switch 2FA off.
+const canSkip2fa = u => !u.totp_enabled && u.recovery_hashes == null;
 async function makeSession(env, userId, stage, hours = 12) {
   const token = rid(32);
   await env.DB.prepare('INSERT INTO sessions (token, user_id, stage, expires_at) VALUES (?,?,?,?)')
@@ -384,7 +388,7 @@ async function api(req, env) {
       .bind(id, email.toLowerCase(), name, phone || null, authSalt, await pbkdf2(authKey, authSalt), kdfSalt, secret, code, now()).run();
     const token = await makeSession(env, id, 'enrol', 1);
     const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
-    return json({ token, totpSecret: secret, otpauth });
+    return json({ token, totpSecret: secret, otpauth, canSkip: true });
   }
 
   if (p === '/api/2fa/enable' && m === 'POST') {
@@ -395,9 +399,26 @@ async function api(req, env) {
     if (!(await totpVerify(u.totp_secret, body.code))) return err('That code did not match. Check your authenticator app clock.');
     const codes = recoveryCodes();
     const hashes = await Promise.all(codes.map(c => sha256hex('rec|' + normRecovery(c))));
-    await env.DB.prepare('UPDATE users SET totp_enabled=1, recovery_hashes=? WHERE id=?').bind(JSON.stringify(hashes), u.id).run();
+    await env.DB.prepare('UPDATE users SET totp_enabled=1, recovery_hashes=?, totp_skipped_at=NULL WHERE id=?').bind(JSON.stringify(hashes), u.id).run();
     await env.DB.prepare('DELETE FROM sessions WHERE token=?').bind(t).run();
     return json({ token: await makeSession(env, u.id, 'full'), kdfSalt: u.kdf_salt, recoveryCodes: codes });
+  }
+
+  // Signup "Skip for now": only an enrol session (already password-checked) can skip, and only once
+  if (p === '/api/2fa/skip' && m === 'POST') {
+    const t = (req.headers.get('authorization') || '').replace('Bearer ', '');
+    const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token=? AND stage='enrol' AND expires_at>?`).bind(t, now()).first();
+    if (!s) return err('Session expired', 401);
+    if (!(await allow(env, '2fa:' + s.user_id, 10, HOUR))) return slowDown();
+    const u = await env.DB.prepare('SELECT * FROM users WHERE id=?').bind(s.user_id).first();
+    if (!u || !canSkip2fa(u)) return err('Two-factor login was set up on this account before, so please set it up again.', 403);
+    // Spend the enrol session first, so the same session can never be used twice
+    const del = await env.DB.prepare(`DELETE FROM sessions WHERE token=? AND stage='enrol'`).bind(t).run();
+    if (!del.meta.changes) return err('Session expired', 401);
+    // Drop the unused signup secret: turning 2FA on later always starts from a fresh one
+    await env.DB.prepare('UPDATE users SET totp_skipped_at=?, totp_secret=NULL WHERE id=? AND totp_enabled=0').bind(now(), u.id).run();
+    await logEvent(env, u.id, '2fa_skipped', '');
+    return json({ token: await makeSession(env, u.id, 'full'), kdfSalt: u.kdf_salt });
   }
 
   if (p === '/api/prelogin' && m === 'POST') {
@@ -411,7 +432,12 @@ async function api(req, env) {
     if (!(await allow(env, 'login:' + em, 10, HOUR)) || !(await allow(env, 'loginip:' + ip(req), 30, HOUR))) return slowDown();
     const u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(em).first();
     if (!u || !safeEq(await pbkdf2(body.authKey || '', u.auth_salt), u.auth_hash)) return err('Email or password incorrect', 401);
-    if (!u.totp_enabled) return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: u.totp_secret, otpauth: `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${u.totp_secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}` });
+    // Chose to skip 2FA: the password alone gives a full session (logging in still counts as proof of life)
+    if (!u.totp_enabled && u.totp_skipped_at) {
+      await resetCheckin(env, { ...u, checkin_days: u.checkin_days }, 'login');
+      return json({ token: await makeSession(env, u.id, 'full') });
+    }
+    if (!u.totp_enabled) return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: u.totp_secret, otpauth: otpauthUri(u.email, u.totp_secret), canSkip: canSkip2fa(u) });
     if (body.recovery) {
       // Lost phone: a one-off recovery code replaces the 2FA code, then they set up 2FA again on their new phone
       const h = await sha256hex('rec|' + normRecovery(body.recovery));
@@ -422,7 +448,7 @@ async function api(req, env) {
       await logEvent(env, u.id, 'recovery_code_used', '');
       await sendEmail(env, u.id, u.email, `A recovery code was used on your account`, `<p>Hi ${esc(u.name)},</p><p>Someone, hopefully you, logged in with one of your recovery codes and is setting up two-factor login on a new phone.</p><p><b>If this wasn't you, reply to this email straight away.</b></p>`);
       const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
-      return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: secret, otpauth });
+      return json({ token: await makeSession(env, u.id, 'enrol', 1), needsEnrol: true, totpSecret: secret, otpauth, canSkip: false });
     }
     if (!(await totpVerify(u.totp_secret, body.code))) return err('Two-factor code incorrect', 401);
     await resetCheckin(env, { ...u, checkin_days: u.checkin_days }, 'login');   // logging in counts as proof of life
@@ -474,8 +500,31 @@ async function api(req, env) {
         vault: u.vault_ct, wrappedOwner: u.wrapped_owner, hasRelease: !!u.wrapped_release, releaseMode: u.release_mode,
         policy: { checkin_days: u.checkin_days, grace_weeks: u.grace_weeks, proof_required: u.proof_required, veto_days: u.veto_days },
         state: u.state, nextCheckin: u.next_checkin_at, nominees, openClaim: (await openClaims(env, u.id)) > 0,
-        recoveryLeft: JSON.parse(u.recovery_hashes || '[]').length,
+        recoveryLeft: JSON.parse(u.recovery_hashes || '[]').length, totpEnabled: !!u.totp_enabled,
       });
+    }
+    // Turn on 2FA later (for owners who skipped it at signup). Always a fresh secret; there is no way to turn it off.
+    if (p === '/api/me/2fa/setup' && m === 'POST') {
+      if (!(await allow(env, '2fa:' + u.id, 10, HOUR))) return slowDown();
+      if (u.totp_enabled) return err('Two-factor login is already on', 409);
+      const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
+      await env.DB.prepare('UPDATE users SET totp_secret=? WHERE id=? AND totp_enabled=0').bind(secret, u.id).run();
+      return json({ totpSecret: secret, otpauth: otpauthUri(u.email, secret) });
+    }
+    if (p === '/api/me/2fa/enable' && m === 'POST') {
+      if (!(await allow(env, '2fa:' + u.id, 10, HOUR))) return slowDown();
+      if (u.totp_enabled) return err('Two-factor login is already on', 409);
+      if (!u.totp_secret) return err('Please start two-factor setup again.');
+      if (!(await totpVerify(u.totp_secret, body.code))) return err('That code did not match. Check your authenticator app clock.');
+      const codes = recoveryCodes();
+      const hashes = await Promise.all(codes.map(c => sha256hex('rec|' + normRecovery(c))));
+      const upd = await env.DB.prepare('UPDATE users SET totp_enabled=1, recovery_hashes=?, totp_skipped_at=NULL WHERE id=? AND totp_enabled=0 AND totp_secret=?').bind(JSON.stringify(hashes), u.id, u.totp_secret).run();
+      if (!upd.meta.changes) return err('Please start two-factor setup again.');
+      // Sign out every other session that was opened with the password alone; this one stays
+      const t = (req.headers.get('authorization') || '').replace('Bearer ', '');
+      await env.DB.prepare('DELETE FROM sessions WHERE user_id=? AND token<>?').bind(u.id, t).run();
+      await logEvent(env, u.id, '2fa_enabled_later', '');
+      return json({ ok: true, recoveryCodes: codes });
     }
     if (p === '/api/me/vault' && m === 'POST') {
       // Client sends ciphertext only. serverShare + wrappedRelease are set when the vault is first sealed or re-keyed.

@@ -15,7 +15,7 @@ We publish all of our code so that anyone can check how your data is handled, ra
    - an **owner key**, which never leaves your device.
 2. Your vault is encrypted with a random **vault key** using AES-256-GCM, in your browser.
 3. The vault key is itself encrypted with your owner key. We store only the encrypted vault and the encrypted vault key, and neither is readable without your master password.
-4. Two-factor login (TOTP) is required for every account. You get ten one-off recovery codes in case you lose your phone; using one emails you and makes you set up two-factor login again.
+4. Two-factor login (TOTP) is strongly recommended and is the default next step at signup. Owners can choose "Skip for now" and turn it on later from the dashboard (always with a fresh secret); once on, it can't be turned off. With 2FA on you get ten one-off recovery codes in case you lose your phone; using one emails you and makes you set up two-factor login again (skipping isn't offered then). The admin area is separate and uses its own admin token.
 
 You can verify this in `public/crypto.js` (all encryption) and `public/app.html` (what is sent to the server). The server code is in `src/worker.js`; it only ever receives ciphertext for vault contents.
 
