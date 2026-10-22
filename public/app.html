@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261021b">
+<link rel="stylesheet" href="/style.css?v=20261022a">
 <script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
@@ -84,25 +84,12 @@
 <div id="vSeal" class="hide">
   <h2>Seal your vault</h2>
   <p class="muted">Your nominees don't need anything from you. Just leave a message in your will or a letter telling them to visit savemysecrets.com if anything happens to you.</p>
-  <details><summary>Optional extra security</summary>
-  <label class="check"><input type="checkbox" id="extraCode"> <span>Also require a printed code that I'll give my nominee. Even a verified release can't open the vault without it. If the code is lost, so is the vault.</span></label>
-  </details>
   <div class="notice">Alpha: test with something non-critical. Keep your real records where they are for now.</div>
-  <label>First secret: title</label><input id="sealTitle" placeholder="e.g. Where the house deeds are">
-  <label>Details</label><textarea id="sealBody" placeholder="Encrypted on this device before it's sent."></textarea>
+  <label>First secret: title</label><input id="sealTitle">
+  <label>Details</label><textarea id="sealBody" rows="8" style="min-height:220px;resize:vertical" placeholder="Encrypted on this device before it's sent."></textarea>
   <p></p><button class="accent" id="btnSeal" style="width:100%">Encrypt and seal</button>
 </div>
 
-<!-- LEGACY CODE (shown once) -->
-<div id="vCode" class="hide">
-  <h2>Your legacy code</h2>
-  <p>Write this down or print it and give it to your nominees, or put it with your will. <b>We do not keep a copy and cannot show it again.</b></p>
-  <div class="code" id="codeBox"></div>
-  <p class="small muted">Your nominees need this code plus our verified release to open your vault. Neither works alone.</p>
-  <div class="row noprint"><button class="ghost" onclick="print()">Print</button></div>
-  <label class="check"><input type="checkbox" id="codeOk"> I've stored my legacy code safely</label>
-  <button class="accent" id="btnCodeDone" disabled style="width:100%">Continue</button>
-</div>
 
 <!-- DASHBOARD -->
 <div id="vDash" class="hide">
@@ -118,13 +105,12 @@
   <div class="tabs" id="dashTabs"><button class="on" data-t="vault">Vault</button><button data-t="noms">Nominees</button><button data-t="rules">Rules</button><button data-t="try">Rehearse</button></div>
 
   <div id="tVault">
-    <label>Letter to your nominees (optional)</label><textarea id="letter" placeholder="Anything you want them to read first."></textarea>
     <div id="items"></div>
     <div class="notice">Alpha: please don't store anything mission critical yet.</div>
     <details><summary>Add a secret</summary>
       <label>Type</label><select id="iType"><option>Password / login</option><option>Account / bank</option><option>Document location</option><option>Instructions</option><option>Wallet / seed phrase</option><option>Note</option></select>
       <label>Title</label><input id="iTitle">
-      <label>Details</label><textarea id="iBody"></textarea><p></p>
+      <label>Details</label><textarea id="iBody" rows="8" style="min-height:220px;resize:vertical"></textarea><p></p>
       <button id="btnAdd" class="ghost" style="width:100%">Add to vault</button>
     </details><p></p>
     <button class="accent" id="btnSave" style="width:100%">Encrypt and save vault</button>
@@ -195,13 +181,13 @@
 
 <footer><div class="narrow"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/pricing">Pricing</a> · <a href="mailto:support@savemysecrets.com">support@savemysecrets.com</a></div></footer>
 <script>
-let inviteCode = null, token = null, ownerKey = null, K = null, me = null, vault = { letter: '', items: [] }, pendingSeal = null;
+let inviteCode = null, token = null, ownerKey = null, K = null, me = null, vault = { items: [] };
 const $ = id => document.getElementById(id);
 // Phone fields start with + so people include their country code
 document.addEventListener('focusin', e => { if (e.target.type === 'tel' && !e.target.value) e.target.value = '+'; });
 document.addEventListener('focusout', e => { if (e.target.type === 'tel' && e.target.value.trim() === '+') e.target.value = ''; });
 document.addEventListener('input', e => { if (e.target.type === 'tel' && /^\+\+/.test(e.target.value)) e.target.value = e.target.value.replace(/^\++/, '+'); });
-const show = v => ['vAuth','vEnrol','vRec','vSeal','vCode','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
+const show = v => ['vAuth','vEnrol','vRec','vSeal','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
 // The approval email's link is the invite: people arriving from it never see an invite code.
 const LINK_USED = 'You already have an account. Log in to carry on.';
@@ -373,21 +359,17 @@ async function loadDash() {
 }
 
 $('btnSeal').onclick = async () => {
-  const mode = $('extraCode').checked ? 'sovereign' : 'standard';
   const items = $('sealTitle').value ? [{ type: 'Note', title: $('sealTitle').value, body: $('sealBody').value }] : [];
-  vault = { letter: '', items };
-  const v = await SMS.createVault(ownerKey, vault, mode);
+  vault = { items };
+  const v = await SMS.createVault(ownerKey, vault);
   await post('/api/me/vault', v.upload);
-  K = v.K; pendingSeal = v;
-  if (v.legacyCode) { const g = v.legacyCode.split('-'); $('codeBox').innerHTML = g.slice(0, 4).join('-') + '<br>' + g.slice(4).join('-'); show('vCode'); }
-  else await loadDash();
+  K = v.K;
+  await loadDash();
 };
-$('codeOk').onchange = () => $('btnCodeDone').disabled = !$('codeOk').checked;
 $('toggleRec').onclick = e => { e.preventDefault(); const on = $('recRow').classList.toggle('hide'); $('codeRow').classList.toggle('hide', !on);
   $('toggleRec').textContent = on ? 'Lost your phone? Use a recovery code' : 'Use my authenticator app instead'; };
 $('recOk').onchange = () => $('btnRecDone').disabled = !$('recOk').checked;
 $('btnRecDone').onclick = () => { $('recBox').textContent = ''; loadDash(); };
-$('btnCodeDone').onclick = () => { pendingSeal = null; $('codeBox').textContent = ''; loadDash(); };
 
 function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
 function renderAll() {
@@ -402,13 +384,12 @@ function renderAll() {
   const recText = me.totpEnabled && me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
   // Never say "All good" with no nominees; the "I'm fine" button shows whenever a check-in is due or anything is in progress
   const needsFineButton = due || ['overdue', 'nominees_contacted', 'veto_window'].includes(me.state) || me.openClaim;
-  const qText = !me.hasRelease ? 'Only your nominees\' answers can open it' : me.releaseMode === 'sovereign' ? 'Release also needs your printed code' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length;
+  const qText = !me.hasRelease ? 'Only your nominees\' answers can open it' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length;
   const statusSuffix = me.nominees.length > 0 ? `<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${qText}</span>` : '';
   $('noNomineePrompt').classList.toggle('hide', me.nominees.length > 0);
   $('tfaBanner').classList.toggle('hide', !!me.totpEnabled); $('tfaSettings').classList.toggle('hide', !!me.totpEnabled);
   $('btnFine').classList.toggle('hide', me.nominees.length === 0 && !needsFineButton);
   $('statusLine').innerHTML = `${stateText}${claimText}${recText}${statusSuffix}`;
-  $('letter').value = vault.letter || '';
   $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b><span class="small muted">${esc(it.type)}</span>
     <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
   $('nomList').innerHTML = me.nominees.map(n => `<div class="item"><b>${esc(n.name)}</b><span class="small muted">${[n.relationship, n.email, n.phone].filter(Boolean).map(esc).join(' · ')}</span>
@@ -446,9 +427,7 @@ $('btnQSave').onclick = async () => {
   btn.disabled = false;
 };
 window.delNom = async id => { await call('/api/me/nominees/' + id, { method: 'DELETE' }); me = await call('/api/me'); renderAll(); };
-// Keep the letter in memory as it's typed, so re-rendering after other edits never wipes it
 let dirty = false;
-$('letter').oninput = () => { vault.letter = $('letter').value; dirty = true; };
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 $('btnAdd').onclick = () => {
   if (!$('iTitle').value) return flash('Give it a title');
@@ -456,7 +435,7 @@ $('btnAdd').onclick = () => {
   $('iTitle').value = $('iBody').value = ''; dirty = true; renderAll(); flash('Added. Save the vault to make it permanent.');
 };
 $('btnSave').onclick = async () => {
-  vault.letter = $('letter').value;
+  // An existing letter (from before the letter field was removed) stays inside `vault` and is saved unchanged
   await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
   dirty = false; flash('Vault encrypted and saved.', true);
 };

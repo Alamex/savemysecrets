@@ -1,6 +1,6 @@
 // Save My Secrets — alpha Worker (API + daily check-in cron)
-// The server never sees the master password or the legacy code. NOTE: in standard mode (the alpha default)
-// it stores the release share that can unwrap the vault key, so it could open vaults. See README.
+// The server never sees the master password. NOTE: in standard mode it stores the release share that can unwrap
+// the vault key, so it could open vaults until every nominee has questions. See README.
 
 const BRAND = 'Save My Secrets';
 const DAY = 86400000;
@@ -202,8 +202,8 @@ async function makeSession(env, userId, stage, hours = 12) {
     .bind(token, userId, stage, now() + hours * 3600000).run();
   return token;
 }
-// Once every nominee has questions, we delete our own openable copy (standard mode only: in printed-code mode our copy
-// already needs the owner's code, so it stays as a second route). From then on we can't open the vault without answers.
+// Once every nominee has questions, we delete our own openable copy (standard mode only; vaults from the retired
+// printed-code option keep theirs, which is never released). From then on we can't open the vault without answers.
 async function maybeDropServerCopy(env, u) {
   const left = await env.DB.prepare('SELECT COUNT(*) AS c FROM nominees n LEFT JOIN nominee_keys k ON k.nominee_id=n.id WHERE n.user_id=? AND k.nominee_id IS NULL').bind(u.id).first();
   const total = await env.DB.prepare('SELECT COUNT(*) AS c FROM nominees WHERE user_id=?').bind(u.id).first();
@@ -515,7 +515,7 @@ async function api(req, env) {
       for (const n of nominees) { n.questions = n.questions ? JSON.parse(n.questions) : null; n.hasQuestions = !!n.questions; }
       return json({
         name: u.name, email: u.email, phone: u.phone, kdfSalt: u.kdf_salt,
-        vault: u.vault_ct, wrappedOwner: u.wrapped_owner, hasRelease: !!u.wrapped_release, releaseMode: u.release_mode,
+        vault: u.vault_ct, wrappedOwner: u.wrapped_owner, hasRelease: !!u.wrapped_release && u.release_mode === 'standard', releaseMode: u.release_mode,
         policy: { checkin_days: u.checkin_days, grace_weeks: u.grace_weeks, proof_required: u.proof_required, veto_days: u.veto_days },
         state: u.state, nextCheckin: u.next_checkin_at, nominees, openClaim: (await openClaims(env, u.id)) > 0,
         recoveryLeft: JSON.parse(u.recovery_hashes || '[]').length, totpEnabled: !!u.totp_enabled,
@@ -549,8 +549,10 @@ async function api(req, env) {
       const { vault, wrappedOwner, wrappedRelease, serverShare, releaseMode } = body;
       if (!vault || !wrappedOwner) return err('Missing vault');
       if (wrappedRelease && serverShare) {
+        // The printed-code option has been removed: standard is the only mode a vault can be sealed in
+        if (releaseMode !== 'standard') return err('That release option is no longer available.');
         await env.DB.prepare('UPDATE users SET vault_ct=?, wrapped_owner=?, wrapped_release=?, server_share=?, release_mode=? WHERE id=?')
-          .bind(vault, wrappedOwner, wrappedRelease, await sealShare(env, serverShare), releaseMode === 'standard' ? 'standard' : 'sovereign', u.id).run();
+          .bind(vault, wrappedOwner, wrappedRelease, await sealShare(env, serverShare), 'standard', u.id).run();
         if (!u.next_checkin_at) {
           await resetCheckin(env, u, 'vault sealed');
           const next = new Date(now() + u.checkin_days * DAY).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -773,8 +775,8 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
         if (k) {
           // Questions mode: nothing that opens the vault is sent until two answers are proved
           out.package = { name: u.name, releaseMode: 'questions', questions: JSON.parse(k.questions), salts: JSON.parse(k.salts), retryAt: c.unlock_after || 0 };
-        } else if (u.wrapped_release) {
-          // Release package: server share + ciphertext. In sovereign mode the nominee also needs the printed code.
+        } else if (u.wrapped_release && u.release_mode === 'standard') {
+          // Release package: server share + ciphertext. (Vaults from the retired printed-code option get no package.)
           out.package = { name: u.name, vault: u.vault_ct, wrappedRelease: u.wrapped_release, serverShare: await openShare(env, u.server_share), releaseMode: u.release_mode };
         } else out.status = 'unavailable';
       } else if (c.status === 'approved') out.vetoEndsAt = u.veto_ends_at;
