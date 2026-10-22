@@ -96,7 +96,7 @@ await page.goto(B + '/app?invite=' + inv2 + '&email=' + encodeURIComponent(email
 await page.fill('#sName', 'Skip Tester'); await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
 await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); await page.locator('#skipLink').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/j-6-skip-link.png` });
 await page.click('#skipLink'); await page.waitForSelector('#skipConfirm:not(.hide)');
-ok((await page.textContent('#skipConfirm')).includes('Without 2FA, anyone who learns your password can open your vault. You can turn 2FA on later in Settings.'), 'skip confirm explains the risk');
+ok((await page.textContent('#skipConfirm')).includes('Without 2FA, anyone who learns your password can open your vault. You can turn 2FA on later from your dashboard.'), 'skip confirm explains the risk');
 ok((await page.textContent('#btnSkipYes')).trim() === 'Skip anyway' && (await page.textContent('#btnSkipNo')).trim() === 'Set up 2FA', 'skip confirm buttons');
 await page.locator('#skipConfirm').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/j-7-skip-confirm.png` });
 await page.click('#btnSkipNo'); ok(!(await page.isVisible('#skipConfirm')) && await page.isVisible('#vEnrol'), '"Set up 2FA" goes back to the enrol screen');
