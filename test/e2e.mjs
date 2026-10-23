@@ -506,4 +506,17 @@ ok((await call('/api/2fa/skip', { method: 'POST', token: r.d.token })).s === 403
 r = await call('/api/login', { method: 'POST', body: { email: email5, authKey: k.authKey } });
 ok(r.s === 200 && r.d.needsEnrol && r.d.canSkip === false && (await call('/api/me', { token: r.d.token })).s === 401, 'after a recovery code, password alone still only reaches enrol');
 
+// Admin "User N": sign-up order worked out on the server, admin endpoints only, raw id still returned for look-ups
+{ const evs = (await call('/api/admin/events', { token: ADM })).d; const noOf = id => evs.find(e => e.user_id === id)?.user_no;
+  const seen = new Map(); let consistent = true; for (const e of evs.filter(e => e.user_id)) { if (seen.has(e.user_id) && seen.get(e.user_id) !== e.user_no) consistent = false; seen.set(e.user_id, e.user_no); }
+  ok(consistent && [...seen.values()].every(n => n === null || (Number.isInteger(n) && n >= 1)), 'admin events carry a stable user number per user');
+  ok(noOf(uid2) >= 1 && noOf(uidUnapp) > noOf(uid2), 'users are numbered in sign-up order');
+  ok(new Set([...seen.entries()].filter(([, n]) => n).map(([, n]) => n)).size === [...seen.values()].filter(Boolean).length, 'no two users share a number');
+  d1(`INSERT INTO events (user_id, kind, detail, at) VALUES ('gone-user-0000', 'test_deleted_user', '{}', ${Date.now()})`);
+  const gone = (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind === 'test_deleted_user');
+  ok(gone && gone.user_id === 'gone-user-0000' && gone.user_no === null, 'an event whose user no longer exists has no number (shown as "Deleted user")');
+  ok((await call('/api/admin/claims', { token: ADM })).d.every(c => Number.isInteger(c.user_no)), 'claims carry the owner\'s user number');
+  ok((await call('/api/admin/events', { token: 'nope' })).s === 401 && (await call('/api/admin/events')).s === 401, 'events (with user numbers) still need the admin token');
+  const mine = await call('/api/me', { token: tok2 }); ok(mine.s === 200 && !JSON.stringify(mine.d).includes('user_no'), 'owners never see user numbers'); }
+
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);

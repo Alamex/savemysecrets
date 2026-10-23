@@ -190,5 +190,19 @@ ok((await page.textContent('#flash')).trim() === 'You already have an account. L
 await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: process.env.USED_SHOT || `${OUT}/j-11-used-link-login.png` });
 await page.fill('#lPw', pw); await page.click('#fLogin button');
 await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); ok(await page.isVisible('#skipLink'), 'logging in resumes enrolment, with skip available');
+// Admin panel: readable "When" (viewer's timezone, 24-hour) and "User N" instead of raw ids
+{ const actx = await browser.newContext({ viewport: { width: 1100, height: 900 }, timezoneId: 'Asia/Dubai' }); const ap = await actx.newPage();
+  await ap.goto(B + '/admin'); await ap.fill('#tok', ADM); await ap.click('.tabs button[data-t=events]'); await ap.click('#go'); await ap.waitForSelector('#out table tr:nth-child(2)');
+  const f = await ap.evaluate(() => { const now = new Date(2026, 9, 23, 15, 0); const strip = h => h.replace(/<[^>]+>/g, '');
+    return { today: strip(when(new Date(2026, 9, 23, 14, 4).getTime(), now)), earlier: strip(when(new Date(2026, 9, 22, 14, 4).toISOString(), now)),
+      lastYear: strip(when(new Date(2025, 9, 22, 14, 4).getTime(), now)), sqlite: strip(when('2026-10-22 10:04:00', now)), digits: strip(when(String(new Date(2026, 9, 23, 9, 5).getTime()), now)),
+      tip: when(Date.UTC(2026, 9, 22, 10, 4), now), empty: when(null, now) }; });
+  ok(f.today === '14:04' && f.earlier === '22/10 14:04' && f.lastYear === '22/10/25 14:04', 'admin times: "14:04" today, "22/10 14:04" earlier, year only when not this year');
+  ok(f.sqlite === '22/10 14:04' && f.digits === '09:05' && f.empty === '', 'admin times accept ms epoch, ISO and SQLite UTC text; shown in the viewer\'s timezone (Dubai here)');
+  ok(f.tip.includes('title="2026-10-22T10:04:00.000Z"'), 'full ISO timestamp in the tooltip');
+  const cells = await ap.$$eval('#out table tr td:nth-child(2)', tds => tds.map(td => ({ t: td.textContent, id: td.querySelector('[title]')?.title || '' })));
+  ok(cells.some(c => /^User \d+$/.test(c.t) && c.id) && cells.every(c => /^(User \d+|Deleted user|-)$/.test(c.t)), 'events show "User N" (raw id in the tooltip), never a raw id');
+  ok((await ap.$$eval('#out table tr td:first-child', tds => tds.every(td => /^(\d\d\/\d\d(\/\d\d)? )?\d\d:\d\d$/.test(td.textContent)))), 'every events "When" cell uses the short format');
+  await actx.close(); }
 console.log('page errors:', errs.length ? errs : 'none'); console.log('owner:', email);
 await browser.close(); console.log(fails ? `${fails} FAILED` : 'ALL PASSED'); process.exit(fails ? 1 : 0);
