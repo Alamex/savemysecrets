@@ -1,4 +1,4 @@
-import fs from 'fs'; import vm from 'vm'; import crypto from 'crypto';
+import fs from 'fs'; import vm from 'vm'; import crypto from 'crypto'; import { execFileSync } from 'child_process';
 const B = process.env.B || 'http://localhost:8787', ADM = process.env.ADM || 'admin-dev-token', DAY = 86400000;
 
 // Production guard: refuse to run tests against non-localhost unless explicitly allowed
@@ -33,6 +33,23 @@ async function claimant(name, mail) {
   return v.d.token;
 }
 const email = `neil+${Date.now()}@example.com`, pw = 'correct horse battery staple';
+// Every nominee is added together with their three questions (built in the browser from the vault key and our share)
+const QS = [{ q: 'First street?', answer: 'Elm Road' }, { q: 'Old dog?', answer: 'Rufus' }, { q: 'Wedding town?', answer: 'Hove' }];
+async function addNom(tok, K, body, qs = QS) {
+  const keys = await SMS.buildNomineeKeys(K, (await call('/api/me/share', { token: tok })).d.serverShare, qs);
+  return call('/api/me/nominees', { method: 'POST', token: tok, body: { ...body, keys } });
+}
+// Vaults sealed before questions were required can't be made through the API any more, so the local test database is
+// given one directly: a standard release copy plus a nominee without questions, as on production. Local D1 only.
+const LOCAL = ['localhost', '127.0.0.1', '[::1]'].includes(new URL(B).hostname);
+const d1 = sql => { if (!LOCAL) throw new Error('legacy seeding is local only');
+  execFileSync('npx', ['wrangler', 'd1', 'execute', 'savemysecrets', '--local', '--command', sql], { cwd: new URL('..', import.meta.url).pathname, stdio: 'pipe' }); };
+async function makeLegacy(ownerEmail, tok, K, nominees) {
+  const S = (await call('/api/me/share', { token: tok })).d.serverShare;
+  const wr = await SMS.seal(await SMS.releaseKey(SMS.unb64(S), new Uint8Array(20)), K);
+  d1(`UPDATE users SET wrapped_release='${wr}', release_mode='standard' WHERE email='${ownerEmail}'`);
+  for (const n of nominees) d1(`INSERT INTO nominees (id,user_id,name,email,relationship,notify_early,created_at) VALUES ('${n.id}',(SELECT id FROM users WHERE email='${ownerEmail}'),'${n.name}','${n.email}','${n.rel || ''}',0,${Date.now()})`);
+}
 
 const wlEmail = 'w' + Date.now() + '@example.com';
 ok((await call('/api/waitlist', { method: 'POST', body: { email: wlEmail, source: 'conf' } })).s === 200, 'waitlist');
@@ -95,18 +112,27 @@ ok(Array.isArray(r.d.recoveryCodes) && r.d.recoveryCodes.length === 10, '10 reco
 
 const contents = { letter: 'Dear family, love you.', items: [{ type: 'Seed phrase / wallet', title: 'Cold wallet', body: 'abandon ability able about above absent absorb abstract absurd abuse access accident' }] };
 const v = await SMS.createVault(k.ownerKey, contents);
-ok(v.upload.releaseMode === 'standard' && !('legacyCode' in v), 'new vaults are standard mode, with no printed code');
-ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, releaseMode: 'sovereign' } })).s === 400, 'printed-code mode can no longer be enabled');
-ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, releaseMode: undefined } })).s === 400, 'sealing must name the standard mode');
-ok(!(await call('/api/me', { token: tok })).d.hasRelease, 'rejected seal stored nothing');
+ok(v.upload.releaseMode === 'questions' && !('wrappedRelease' in v.upload) && !('legacyCode' in v), 'new vaults make no release copy of the key, and no printed code');
+ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Too Early', email: 'early@example.com', keys: {} } })).s === 400, 'no nominees before the vault is sealed');
+// A copy of the key that our share alone opens is refused, whatever mode the request names
+const stdCopy = await SMS.seal(await SMS.releaseKey(SMS.unb64(v.upload.serverShare), new Uint8Array(20)), v.K);
+for (const mode of ['standard', 'questions', 'sovereign', undefined]) ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, wrappedRelease: stdCopy, releaseMode: mode } })).s === 400, `new vault: wrapped_release upload refused (mode ${mode})`);
+ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, releaseMode: 'standard' } })).s === 400, 'sealing in standard mode refused');
+ok(!(await call('/api/me', { token: tok })).d.hasRelease && !(await call('/api/me', { token: tok })).d.wrappedOwner, 'rejected seals stored nothing');
 ok((await call('/api/me/vault', { method: 'POST', token: tok, body: v.upload })).s === 200, 'vault sealed');
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(email) && e.detail.includes('Your vault is set up')), 'welcome email after sealing');
-ok((await call('/api/me', { token: tok })).d.releaseMode === 'standard', 'vault stored in standard mode');
-let otherShareOpens = true; try { await SMS.unlockRelease(SMS.b64(SMS.rand(32)), v.upload.wrappedRelease); } catch { otherShareOpens = false; }
-ok(!otherShareOpens, 'a different server share cannot open the vault');
-
-ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nom Inee', email: 'nominee@example.com', phone: '+447700900000', relationship: 'wife' } })).s === 200, 'nominee added');
-ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'No Plus', email: 'noplus@example.com', phone: '07700 900000' } })).s === 400, 'phone without country code refused');
+{ const m1 = (await call('/api/me', { token: tok })).d; ok(m1.releaseMode === 'questions' && m1.hasRelease === false, 'new vault: no release copy stored, questions-only mode'); }
+ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, wrappedRelease: stdCopy } })).s === 400, 'sealed vault: wrapped_release upload still refused');
+ok((await call('/api/me/vault', { method: 'POST', token: tok, body: (await SMS.createVault(k.ownerKey, {})).upload })).s === 409, 'our share cannot be replaced once sealed');
+ok((await call('/api/me', { token: tok })).d.hasRelease === false, 'still no release copy');
+ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nom Inee', email: 'nominee@example.com', phone: '+447700900000', relationship: 'wife' } })).s === 400, 'nominee without questions refused');
+ok((await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nom Inee', email: 'nominee@example.com', keys: { questions: ['a', 'b'], salts: [], wraps: {}, verifiers: {} } } })).s === 400, 'nominee with malformed questions refused');
+ok((await call('/api/me', { token: tok })).d.nominees.length === 0, 'refused nominees stored nothing');
+// This owner's vault predates required questions: seed the old standard copy and a nominee with no questions (local D1)
+await makeLegacy(email, tok, v.K, [{ id: 'legacynom1', name: 'Nom Inee', email: 'nominee@example.com', rel: 'wife' }]);
+{ const m1 = (await call('/api/me', { token: tok })).d; ok(m1.hasRelease === true && m1.releaseMode === 'standard' && m1.nominees.length === 1 && !m1.nominees[0].hasQuestions, 'existing standard vault: copy held, nominee not set up'); }
+ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { vault: v.upload.vault, wrappedOwner: v.upload.wrappedOwner } })).s === 200 && (await call('/api/me', { token: tok })).d.hasRelease === true, 'existing standard vault: saving contents keeps it working');
+ok((await addNom(tok, v.K, { name: 'No Plus', email: 'noplus@example.com', phone: '07700 900000' })).s === 400, 'phone without country code refused');
 ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { phone: '00971 50 123 4567' } })).s === 200 && (await call('/api/me', { token: tok })).d.phone === '+971501234567', 'phone tidied to +971501234567');
 ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, grace_weeks: 6, proof_required: 'death_certificate', veto_days: 7 } })).s === 200, 'policy saved');
 // Rehearsal: owner plays their nominee; nothing stored, nobody alerted, state unchanged
@@ -204,13 +230,33 @@ const nt2 = await claimant('Nom Inee', 'nominee@example.com');
 r = await call('/api/claim/find', { method: 'POST', token: nt2, body: { ownerEmail: email } });
 ok(r.s === 200 && r.d.status === 'released' && (await call('/api/claim/status', { token: r.d.token })).d.package, 'nominee can come back on a new device after release');
 
+// Scenario 1b: an existing standard vault keeps working until every nominee has questions, then our copy is deleted
+const emailL = `legacy+${Date.now()}@example.com`;
+r = await call('/api/register', { method: 'POST', body: { email: emailL, name: 'Lena Legacy', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
+r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tokL = r.d.token;
+const vL = await SMS.createVault(k.ownerKey, { items: [{ title: 'Will', body: 'In the safe' }] }); await call('/api/me/vault', { method: 'POST', token: tokL, body: vL.upload });
+await makeLegacy(emailL, tokL, vL.K, [{ id: 'legacyL1', name: 'Lou One', email: 'lou1@example.com' }, { id: 'legacyL2', name: 'Lou Two', email: 'lou2@example.com' }]);
+ok((await call('/api/me', { token: tokL })).d.hasRelease === true, 'existing standard vault starts with our copy');
+ok((await call('/api/me/vault', { method: 'POST', token: tokL, body: { vault: vL.upload.vault, wrappedOwner: vL.upload.wrappedOwner, wrappedRelease: 'x' } })).s === 400, 'existing vault: a replacement release copy is refused too');
+ok((await addNom(tokL, vL.K, { name: 'Lou Three', email: 'lou3@example.com' })).s === 200 && (await call('/api/me', { token: tokL })).d.hasRelease === true, 'existing vault: adding a set-up nominee keeps the copy while others are not set up');
+const shareL = (await call('/api/me/share', { token: tokL })).d.serverShare;
+r = await call('/api/me/nominees/legacyL1/questions', { method: 'POST', token: tokL, body: await SMS.buildNomineeKeys(vL.K, shareL, QS) });
+ok(r.s === 200 && r.d.removedServerCopy === false && r.d.allSet === false && (await call('/api/me', { token: tokL })).d.hasRelease === true, 'copy kept while one nominee still has no questions');
+await (call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 91 * DAY, emails: [emailL] } }));
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(emailL) && e.detail.includes('Lou Two has no questions yet') && e.detail.includes('Set questions for every nominee so we can delete our copy of your key.')), 'check-in email asks the owner to finish so we can delete our copy');
+await call('/api/me/checkin', { method: 'POST', token: tokL, body: {} });
+r = await call('/api/me/nominees/legacyL2/questions', { method: 'POST', token: tokL, body: await SMS.buildNomineeKeys(vL.K, shareL, QS) });
+ok(r.s === 200 && r.d.removedServerCopy === true && r.d.allSet === true, 'our copy deleted once every nominee has questions');
+{ const mL = (await call('/api/me', { token: tokL })).d; ok(mL.hasRelease === false && mL.releaseMode === 'questions' && mL.nominees.every(n => n.hasQuestions), 'existing vault now opens only with answers'); }
+ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind === 'server_copy_deleted'), 'deletion logged');
+
 // Scenario 2: owner vetoes by email link during veto window
 const email2 = `veto+${Date.now()}@example.com`; const k2Veto = await SMS.deriveFromPassword(pw, kdfSalt);
 r = await call('/api/register', { method: 'POST', body: { email: email2, name: 'Alive Owner', authKey: k2Veto.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tok2 = r.d.token;
-await call('/api/me/vault', { method: 'POST', token: tok2, body: (await SMS.createVault(k2Veto.ownerKey, { items: [] })).upload });
+const v2 = await SMS.createVault(k2Veto.ownerKey, { items: [] }); await call('/api/me/vault', { method: 'POST', token: tok2, body: v2.upload });
 await call('/api/me/policy', { method: 'POST', token: tok2, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 7 } });
-await call('/api/me/nominees', { method: 'POST', token: tok2, body: { name: 'Bro', email: 'bro@example.com' } });
+ok((await addNom(tok2, v2.K, { name: 'Bro', email: 'bro@example.com' })).s === 200, 'nominee added with their questions in one step');
 const me2 = (await call('/api/me', { token: tok2 })).d; const uid2 = me2.nominees[0].user_id;
 const bt = await claimant('Bro', 'bro@example.com');
 r = await call('/api/claim/find', { method: 'POST', token: bt, body: { u: uid2 } }); const ct2 = r.d.token;
@@ -234,9 +280,9 @@ ok((await call(JSON.parse(older.detail).html.match(/href="([^"]+)"/)[1].replace(
 const email3 = `rej+${Date.now()}@example.com`;
 r = await call('/api/register', { method: 'POST', body: { email: email3, name: 'Third Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 const sec3 = r.d.totpSecret; r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(sec3) } }); let tok3 = r.d.token; const rec3 = r.d.recoveryCodes;
-await call('/api/me/vault', { method: 'POST', token: tok3, body: (await SMS.createVault(k.ownerKey, { items: [] })).upload });
+const v3 = await SMS.createVault(k.ownerKey, { items: [] }); await call('/api/me/vault', { method: 'POST', token: tok3, body: v3.upload });
 await call('/api/me/policy', { method: 'POST', token: tok3, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 6, veto_days: 7 } });
-await call('/api/me/nominees', { method: 'POST', token: tok3, body: { name: 'Sis', email: 'sis@example.com' } });
+await addNom(tok3, v3.K, { name: 'Sis', email: 'sis@example.com' });
 const next3 = (await call('/api/me', { token: tok3 })).d.nextCheckin;
 const st3 = await claimant('Sis', 'sis@example.com');
 const ct3 = (await call('/api/claim/find', { method: 'POST', token: st3, body: { ownerEmail: email3 } })).d.token;
@@ -256,26 +302,30 @@ ok((await call('/api/login', { method: 'POST', body: { email: email3, authKey: k
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWith('email') && e.detail.includes('recovery code was used')), 'owner emailed when a recovery code is used');
 
 ok((await call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 90 * DAY } })).s === 400, 'a simulated future run must name its test accounts');
-// Scenario 4: nominee questions. We delete our openable copy once every nominee has questions; answers open it on the nominee's device
+// Scenario 4: nominee questions. A new vault never has a copy we could open; answers open it on the nominee's device
 const email4 = `q+${Date.now()}@example.com`;
 r = await call('/api/register', { method: 'POST', body: { email: email4, name: 'Quentin Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } }); const sec4 = r.d.totpSecret;
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(sec4) } }); const tok4 = r.d.token;
 const v4 = await SMS.createVault(k.ownerKey, { letter: 'For Ana', items: [{ title: 'Deeds', body: 'With the solicitor' }] });
 await call('/api/me/vault', { method: 'POST', token: tok4, body: v4.upload });
 await call('/api/me/policy', { method: 'POST', token: tok4, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 2, veto_days: 3 } });
-const nA = (await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Ana Nominee', email: 'qa@example.com', relationship: 'wife' } })).d.id;
-const nB = (await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Ben Nominee', email: 'qb@example.com', relationship: 'son' } })).d.id;
 const share4 = (await call('/api/me/share', { token: tok4 })).d.serverShare;
 const keysA = await SMS.buildNomineeKeys(v4.K, share4, [{ q: 'Where did we marry?', answer: 'Marbella', alts: ['Puerto Banús'] }, { q: 'Old boat?', answer: 'Sea Biscuit' }, { q: 'First landlord?', answer: 'Mrs Okafor', alts: ['Okafor'] }]);
-r = await call(`/api/me/nominees/${nA}/questions`, { method: 'POST', token: tok4, body: keysA }); ok(r.s === 200 && !r.d.removedServerCopy, 'questions saved for first nominee');
+r = await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Ana Nominee', email: 'qa@example.com', relationship: 'wife', keys: keysA } }); const nA = r.d.id;
+ok(r.s === 200 && nA, 'first nominee added with their questions');
 ok(!JSON.stringify(keysA).toLowerCase().includes('marbella') && !JSON.stringify(keysA).toLowerCase().includes('okafor'), 'no answers are ever sent to us');
-ok((await call('/api/me', { token: tok4 })).d.hasRelease === true, 'our copy kept while a nominee has no questions');
+ok((await call('/api/me', { token: tok4 })).d.hasRelease === false, 'new vault: we never hold a copy, even mid-setup');
+const nB = (await addNom(tok4, v4.K, { name: 'Ben Nominee', email: 'qb@example.com', relationship: 'son' }, [{ q: 'Q1', answer: 'old one' }, { q: 'Q2', answer: 'old two' }, { q: 'Q3', answer: 'old three' }])).d.id;
 const keysB = await SMS.buildNomineeKeys(v4.K, share4, [{ q: 'Q1', answer: 'alpha one' }, { q: 'Q2', answer: 'bravo two' }, { q: 'Q3', answer: 'charlie three' }]);
-r = await call(`/api/me/nominees/${nB}/questions`, { method: 'POST', token: tok4, body: keysB }); ok(r.d.removedServerCopy === true, 'our copy deleted once every nominee has questions');
-const me4 = (await call('/api/me', { token: tok4 })).d; ok(me4.hasRelease === false && me4.nominees.every(n => n.hasQuestions), 'owner sees we can no longer open it');
+r = await call(`/api/me/nominees/${nB}/questions`, { method: 'POST', token: tok4, body: keysB }); ok(r.s === 200 && r.d.allSet === true && r.d.removedServerCopy === false, 'questions can be changed; there was never a copy to delete');
+const me4 = (await call('/api/me', { token: tok4 })).d; ok(me4.hasRelease === false && me4.nominees.length === 2 && me4.nominees.every(n => n.hasQuestions), 'owner sees every nominee set up and no copy held');
 ok((await call('/api/me/nominees/' + nA + '/questions', { method: 'POST', token: tok4, body: { questions: ['a'], salts: [], wraps: {}, verifiers: {} } })).s === 400, 'malformed questions refused');
-await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Cal Nominee', email: 'qc@example.com' } });
-ok((await call('/api/claim/find', { method: 'POST', token: await claimant('Cal Nominee', 'qc@example.com'), body: { ownerEmail: email4 } })).s === 404, 'nominee without questions cannot claim once our copy is gone');
+ok((await call('/api/me/nominees', { method: 'POST', token: tok4, body: { name: 'Cal Nominee', email: 'qc@example.com' } })).s === 400, 'nominee without questions cannot be added');
+// A nominee row with no questions (as an older vault might have) can't start a claim on a vault with no copy
+d1(`INSERT INTO nominees (id,user_id,name,email,notify_early,created_at) VALUES ('noqnom4',(SELECT id FROM users WHERE email='${email4}'),'Zed Nominee','qz@example.com',0,${Date.now()})`);
+ok((await call('/api/me', { token: tok4 })).d.nominees.some(n => n.name === 'Zed Nominee' && !n.hasQuestions), 'owner sees the nominee is not set up');
+ok((await call('/api/claim/find', { method: 'POST', token: await claimant('Zed Nominee', 'qz@example.com'), body: { ownerEmail: email4 } })).s === 404, 'nominee without questions cannot claim or get a release package');
+await call('/api/me/nominees/noqnom4', { method: 'DELETE', token: tok4 });
 const ta = await claimant('Ana Nominee', 'qa@example.com');
 const cta = (await call('/api/claim/find', { method: 'POST', token: ta, body: { ownerEmail: email4 } })).d.token;
 await interview(cta, sibling('Ana', 'Quentin Owner'));
@@ -360,9 +410,9 @@ ok(reApproveRow && reApproveRow.invited_at && reApproveRow.invite_code === code2
 const emailUnapp = `unapp+${Date.now()}@example.com`;
 r = await call('/api/register', { method: 'POST', body: { email: emailUnapp, name: 'Unapproved Owner', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tokUnapp = r.d.token;
-await call('/api/me/vault', { method: 'POST', token: tokUnapp, body: (await SMS.createVault(k.ownerKey, { items: [] })).upload });
+const vU = await SMS.createVault(k.ownerKey, { items: [] }); await call('/api/me/vault', { method: 'POST', token: tokUnapp, body: vU.upload });
 await call('/api/me/policy', { method: 'POST', token: tokUnapp, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 3 } });
-await call('/api/me/nominees', { method: 'POST', token: tokUnapp, body: { name: 'Claimant Unapp', email: 'claimunapp@example.com' } });
+await addNom(tokUnapp, vU.K, { name: 'Claimant Unapp', email: 'claimunapp@example.com' });
 const meUnapp = (await call('/api/me', { token: tokUnapp })).d; const uidUnapp = meUnapp.nominees[0].user_id;
 const ctUnapp = (await call('/api/claim/find', { method: 'POST', token: await claimant('Claimant Unapp', 'claimunapp@example.com'), body: { u: uidUnapp } })).d.token;
 await interview(ctUnapp, sibling('Claimant Unapp', 'Unapproved Owner'));

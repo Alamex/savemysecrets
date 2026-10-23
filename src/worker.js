@@ -1,6 +1,7 @@
 // Save My Secrets — alpha Worker (API + daily check-in cron)
-// The server never sees the master password. NOTE: in standard mode it stores the release share that can unwrap
-// the vault key, so it could open vaults until every nominee has questions. See README.
+// The server never sees the master password and never holds a key that opens a vault on its own: new vaults are
+// opened only with a nominee's answers plus our share. (Older 'standard' vaults keep a release copy until every
+// nominee has questions, then it is deleted. See README.)
 
 const BRAND = 'Save My Secrets';
 const DAY = 86400000;
@@ -202,8 +203,8 @@ async function makeSession(env, userId, stage, hours = 12) {
     .bind(token, userId, stage, now() + hours * 3600000).run();
   return token;
 }
-// Once every nominee has questions, we delete our own openable copy (standard mode only; vaults from the retired
-// printed-code option keep theirs, which is never released). From then on we can't open the vault without answers.
+// Older vaults only: once every nominee has questions, we delete our own openable copy (standard mode only; vaults
+// from the retired printed-code option keep theirs, which is never released). New vaults never have one.
 async function maybeDropServerCopy(env, u) {
   const left = await env.DB.prepare('SELECT COUNT(*) AS c FROM nominees n LEFT JOIN nominee_keys k ON k.nominee_id=n.id WHERE n.user_id=? AND k.nominee_id IS NULL').bind(u.id).first();
   const total = await env.DB.prepare('SELECT COUNT(*) AS c FROM nominees WHERE user_id=?').bind(u.id).first();
@@ -213,6 +214,21 @@ async function maybeDropServerCopy(env, u) {
     await logEvent(env, u.id, 'server_copy_deleted', '');
   }
   return { left, removed };
+}
+
+// Nominee question keys built in the browser: three questions, three salts, and for each answer pair the locked copies and verifiers
+function validNomineeKeys(b) {
+  const { questions, salts, wraps, verifiers } = b || {};
+  const pairsOk = ['01', '02', '12'].every(k => Array.isArray(wraps?.[k]) && Array.isArray(verifiers?.[k]) && wraps[k].length >= 1 && wraps[k].length <= 25 && wraps[k].length === verifiers[k].length
+    && wraps[k].every(w => typeof w === 'string' && w.length < 200) && verifiers[k].every(v => /^[0-9a-f]{64}$/.test(v)));
+  return Array.isArray(questions) && questions.length === 3 && questions.every(q => typeof q === 'string' && q.trim() && q.length <= 300)
+    && Array.isArray(salts) && salts.length === 3 && pairsOk;
+}
+async function nomineeKeysStmt(env, nid, uid, { questions, salts, wraps, verifiers }) {
+  return env.DB.prepare(`INSERT INTO nominee_keys (nominee_id, user_id, questions, salts, wraps, verifiers, created_at) VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(nominee_id) DO UPDATE SET questions=excluded.questions, salts=excluded.salts, wraps=excluded.wraps, verifiers=excluded.verifiers, created_at=excluded.created_at`)
+    .bind(nid, uid, JSON.stringify(questions.map(q => q.trim())), JSON.stringify(salts), JSON.stringify(wraps),
+      JSON.stringify(Object.fromEntries(await Promise.all(['01', '02', '12'].map(async k => [k, await Promise.all(verifiers[k].map(v => pepper(env, v)))])))), now());
 }
 
 async function auth(req, env, stage = 'full') {
@@ -257,7 +273,7 @@ export async function runEscalation(env, origin, at = now(), onlyEmails = null) 
 
     if (u.state === 'active' && at >= u.next_checkin_at) {
       const noQ = await env.DB.prepare('SELECT n.name FROM nominees n LEFT JOIN nominee_keys k ON k.nominee_id=n.id WHERE n.user_id=? AND k.nominee_id IS NULL').bind(u.id).all();
-      const missing = noQ.results.length ? `<p><b>${noQ.results.map(n => esc(n.name)).join(', ')} ${noQ.results.length === 1 ? 'has' : 'have'} no questions yet.</b> ${u.wrapped_release ? 'Until every nominee has questions, we hold a copy of your vault key.' : "They can't open your vault until you add some."}</p>` : '';
+      const missing = noQ.results.length ? `<p><b>${noQ.results.map(n => esc(n.name)).join(', ')} ${noQ.results.length === 1 ? 'has' : 'have'} no questions yet.</b> ${u.wrapped_release && u.release_mode === 'standard' ? 'Set questions for every nominee so we can delete our copy of your key.' : "They can't open your vault until you add some."}</p>` : '';
       await sendEmail(env, u.id, u.email, `Quick check-in: are you OK?`, `<p>Hi ${esc(u.name)},</p><p>It's time for your regular check-in. One tap and we'll see you next time.</p>${btn}<p style="color:#6b7280;font-size:14px">While you're here, it's worth checking your nominees' questions still make sense, and that they could still answer them.</p>${missing}<p style="color:#6b7280;font-size:14px">If we don't hear from you, we'll follow up for ${u.grace_weeks} weeks before anyone else is contacted. Logging in also counts.</p>`);
       await env.DB.prepare(`UPDATE users SET state='overdue', overdue_since=?, last_reminder_at=?, reminders_sent=1 WHERE id=?`).bind(at, at, u.id).run();
       out.push([u.email, 'first reminder']);
@@ -545,14 +561,17 @@ async function api(req, env) {
       return json({ ok: true, recoveryCodes: codes });
     }
     if (p === '/api/me/vault' && m === 'POST') {
-      // Client sends ciphertext only. serverShare + wrappedRelease are set when the vault is first sealed or re-keyed.
+      // Client sends ciphertext only. serverShare is set once, when the vault is first sealed; nominee keys depend on it.
       const { vault, wrappedOwner, wrappedRelease, serverShare, releaseMode } = body;
       if (!vault || !wrappedOwner) return err('Missing vault');
-      if (wrappedRelease && serverShare) {
-        // The printed-code option has been removed: standard is the only mode a vault can be sealed in
-        if (releaseMode !== 'standard') return err('That release option is no longer available.');
-        await env.DB.prepare('UPDATE users SET vault_ct=?, wrapped_owner=?, wrapped_release=?, server_share=?, release_mode=? WHERE id=?')
-          .bind(vault, wrappedOwner, wrappedRelease, await sealShare(env, serverShare), 'standard', u.id).run();
+      // We never accept a copy of the vault key that our share alone could open
+      if (wrappedRelease) return err('That release option is no longer available.');
+      if (serverShare) {
+        if (u.server_share || u.wrapped_owner) return err('This vault is already sealed.', 409);
+        if (releaseMode !== undefined && releaseMode !== 'questions') return err('That release option is no longer available.');
+        if (typeof serverShare !== 'string' || serverShare.length > 100) return err('Missing vault');
+        await env.DB.prepare(`UPDATE users SET vault_ct=?, wrapped_owner=?, wrapped_release=NULL, server_share=?, release_mode='questions' WHERE id=? AND server_share IS NULL`)
+          .bind(vault, wrappedOwner, await sealShare(env, serverShare), u.id).run();
         if (!u.next_checkin_at) {
           await resetCheckin(env, u, 'vault sealed');
           const next = new Date(now() + u.checkin_days * DAY).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -584,9 +603,16 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       const { name, email, address, relationship, notify_early } = body;
       if (!name || !email) return err('Nominee needs at least a name and email');
       const ph = normPhone(body.phone); if (!ph.ok) return err(PHONE_ERR); const phone = ph.value;
+      // Every new nominee comes with their three questions: their answers are the only way they can open the vault
+      if (!u.server_share) return err('Seal your vault before adding nominees.');
+      if (!body.keys || !validNomineeKeys(body.keys)) return err('Set three questions for this nominee to add them.');
       const id = rid(10);
-      await env.DB.prepare('INSERT INTO nominees (id,user_id,name,email,phone,address,relationship,notify_early,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
-        .bind(id, u.id, name, email.toLowerCase(), phone || null, address || null, relationship || null, notify_early ? 1 : 0, now()).run();
+      await env.DB.batch([
+        env.DB.prepare('INSERT INTO nominees (id,user_id,name,email,phone,address,relationship,notify_early,created_at) VALUES (?,?,?,?,?,?,?,?,?)')
+          .bind(id, u.id, name, email.toLowerCase(), phone || null, address || null, relationship || null, notify_early ? 1 : 0, now()),
+        await nomineeKeysStmt(env, id, u.id, body.keys),
+      ]);
+      await logEvent(env, u.id, 'nominee_questions_set', { nominee: id, removedServerCopy: false });
       if (notify_early) await sendEmail(env, u.id, email, `${u.name} has named you as a nominee`,
         `<p>Hi ${esc(name)},</p><p>${esc(u.name)} has named you as one of their nominees on ${BRAND}. If anything ever happens to them, they've left personal messages and important information for you.</p><p>You don't need to do anything now. If ${esc(u.name.split(' ')[0])} ever stops responding to our check-ins, we'll be in touch. If you ever need to, start at savemysecrets.com.</p>`);
       return json({ ok: true, id });
@@ -603,15 +629,8 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       const nid = p.split('/')[4];
       const n = await env.DB.prepare('SELECT id FROM nominees WHERE id=? AND user_id=?').bind(nid, u.id).first();
       if (!n) return err('Nominee not found', 404);
-      const { questions, salts, wraps, verifiers } = body;
-      const pairsOk = ['01', '02', '12'].every(k => Array.isArray(wraps?.[k]) && Array.isArray(verifiers?.[k]) && wraps[k].length >= 1 && wraps[k].length <= 25 && wraps[k].length === verifiers[k].length
-        && wraps[k].every(w => typeof w === 'string' && w.length < 200) && verifiers[k].every(v => /^[0-9a-f]{64}$/.test(v)));
-      if (!Array.isArray(questions) || questions.length !== 3 || questions.some(q => typeof q !== 'string' || !q.trim() || q.length > 300)
-        || !Array.isArray(salts) || salts.length !== 3 || !pairsOk) return err('Those questions could not be saved. Please try again.');
-      await env.DB.prepare(`INSERT INTO nominee_keys (nominee_id, user_id, questions, salts, wraps, verifiers, created_at) VALUES (?,?,?,?,?,?,?)
-        ON CONFLICT(nominee_id) DO UPDATE SET questions=excluded.questions, salts=excluded.salts, wraps=excluded.wraps, verifiers=excluded.verifiers, created_at=excluded.created_at`)
-        .bind(nid, u.id, JSON.stringify(questions.map(q => q.trim())), JSON.stringify(salts), JSON.stringify(wraps),
-          JSON.stringify(Object.fromEntries(await Promise.all(Object.entries(verifiers).map(async ([k, list]) => [k, await Promise.all(list.map(v => pepper(env, v)))])))), now()).run();
+      if (!validNomineeKeys(body)) return err('Those questions could not be saved. Please try again.');
+      await (await nomineeKeysStmt(env, nid, u.id, body)).run();
       const { left, removed } = await maybeDropServerCopy(env, u);
       await logEvent(env, u.id, 'nominee_questions_set', { nominee: nid, removedServerCopy: removed });
       return json({ ok: true, allSet: !left.c, removedServerCopy: removed });

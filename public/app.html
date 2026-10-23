@@ -94,6 +94,7 @@
 <!-- DASHBOARD -->
 <div id="vDash" class="hide">
   <div id="tfaBanner" class="hide" style="background:var(--gold);color:#fff;border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:14px;line-height:1.4">Your vault is protected by your password only. <a href="#" id="tfaBannerLink" style="color:inherit;font-weight:600;text-decoration:underline">Turn on 2FA</a></div>
+  <div id="notSetBanner" class="hide" style="background:var(--bad);color:#fff;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:14px;line-height:1.45"></div>
   <div class="card" style="margin-bottom:14px">
     <div id="statusLine"></div>
     <p></p><button class="accent" id="btnFine" style="width:100%">I'm fine, check in now</button>
@@ -121,9 +122,10 @@
     <div id="nomList"></div>
     <div id="qEdit" class="card hide" style="margin:14px 0">
       <h3>Questions for <span id="qWho"></span></h3>
-      <p class="small muted">Write three questions only they could answer. Their answers become their key to your vault, and we never see them. Any two correct answers will open it. Avoid anything on social media, birthdays and pets' names.</p>
+      <p class="small muted">Their answers become their key to your vault, and we never see them. Any two correct answers will open it.</p>
+      <p class="notice qWarn">Pick questions only your nominee could answer, not things someone could guess or look up online, like a pet's name.</p>
       <div id="qFields"></div>
-      <p class="small muted">Capitals, spaces, accents and punctuation never matter. Add other ways they might say an answer, separated by commas. Pick answers nobody could guess or look up online.</p>
+      <p class="small muted">Capitals, spaces, accents and punctuation never matter. Add other ways they might say an answer, separated by commas.</p>
       <div class="row"><button class="accent" id="btnQSave">Lock with these answers</button><button class="ghost" id="btnQCancel">Cancel</button></div>
       <p id="qMsg" class="small"></p>
     </div>
@@ -134,7 +136,13 @@
       <label>Postal address</label><textarea id="nAddr" style="min-height:70px"></textarea>
       <label>Relationship to you</label><input id="nRel" placeholder="e.g. wife, brother, solicitor">
       <label class="check"><input type="checkbox" id="nEarly"> Tell them now that I've named them (otherwise they hear nothing until it matters)</label>
-      <button id="btnNom" class="ghost" style="width:100%">Add nominee</button>
+      <h3 style="margin:18px 0 4px">Their three questions</h3>
+      <p class="small muted">Required. Their answers are the only way they can open your vault, and we never see them. Any two correct answers will open it.</p>
+      <p class="notice qWarn">Pick questions only your nominee could answer, not things someone could guess or look up online, like a pet's name.</p>
+      <div id="nQFields"></div>
+      <p class="small muted">Capitals, spaces, accents and punctuation never matter. Add other ways they might say an answer, separated by commas.</p>
+      <button id="btnNom" class="accent" style="width:100%">Add nominee and lock with their answers</button>
+      <p id="nMsg" class="small"></p>
     </details>
   </div>
 
@@ -384,7 +392,8 @@ function renderAll() {
   const recText = me.totpEnabled && me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
   // Never say "All good" with no nominees; the "I'm fine" button shows whenever a check-in is due or anything is in progress
   const needsFineButton = due || ['overdue', 'nominees_contacted', 'veto_window'].includes(me.state) || me.openClaim;
-  const qText = !me.hasRelease ? 'Only your nominees\' answers can open it' : 'Questions set for ' + me.nominees.filter(n => n.hasQuestions).length + ' of ' + me.nominees.length;
+  const notSet = me.nominees.filter(n => !n.hasQuestions);
+  const qText = notSet.length ? `<b class="bad">${notSet.length} not set up</b>` : 'Only your nominees\' answers can open it';
   const statusSuffix = me.nominees.length > 0 ? `<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${qText}</span>` : '';
   $('noNomineePrompt').classList.toggle('hide', me.nominees.length > 0);
   $('tfaBanner').classList.toggle('hide', !!me.totpEnabled); $('tfaSettings').classList.toggle('hide', !!me.totpEnabled);
@@ -392,37 +401,48 @@ function renderAll() {
   $('statusLine').innerHTML = `${stateText}${claimText}${recText}${statusSuffix}`;
   $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b><span class="small muted">${esc(it.type)}</span>
     <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
-  $('nomList').innerHTML = me.nominees.map(n => `<div class="item"><b>${esc(n.name)}</b><span class="small muted">${[n.relationship, n.email, n.phone].filter(Boolean).map(esc).join(' · ')}</span>
-    <p class="small ${n.hasQuestions ? 'ok' : 'bad'}" style="margin:6px 0">${n.hasQuestions ? 'Questions set: ' + n.questions.map(esc).join(' · ') : (me.hasRelease ? 'No questions yet' : 'No questions yet: they cannot open your vault until you add some')}</p>
-    <div class="row"><button class="accent small" onclick="editQ('${n.id}')">${n.hasQuestions ? 'Change questions' : 'Set their questions'}</button><button class="ghost small" onclick="delNom('${n.id}')">Remove</button></div></div>`).join('') || '<p class="muted">No nominees yet. Add at least one.</p>';
-  const set = me.nominees.filter(n => n.hasQuestions).length, total = me.nominees.length;
+  $('nomList').innerHTML = me.nominees.map(n => `<div class="item"${n.hasQuestions ? '' : ' style="border:2px solid var(--bad)"'} data-nom="${n.id}"><b>${esc(n.name)}</b>${n.hasQuestions ? '' : ' <span class="small" style="background:var(--bad);color:#fff;border-radius:6px;padding:1px 7px;margin-right:6px;font-weight:600">Not set up</span>'}<span class="small muted">${[n.relationship, n.email, n.phone].filter(Boolean).map(esc).join(' · ')}</span>
+    <p class="small ${n.hasQuestions ? 'ok' : 'bad'}" style="margin:6px 0">${n.hasQuestions ? 'Questions set: ' + n.questions.map(esc).join(' · ') : '<b>Not set up: they can\'t open your vault.</b> Set their three questions now.'}</p>
+    <div class="row"><button class="accent small" onclick="editQ('${n.id}')">${n.hasQuestions ? 'Change questions' : 'Set their questions now'}</button><button class="ghost small" onclick="delNom('${n.id}')">Remove</button></div></div>`).join('') || '<p class="muted">No nominees yet. Add at least one.</p>';
+  const total = me.nominees.length;
+  const legacyNote = me.hasRelease ? ' Set questions for every nominee so we can delete our copy of your key.' : '';
   $('qBanner').classList.toggle('hide', !total);
-  $('qBanner').innerHTML = !me.hasRelease ? (set === total ? '<b>We can no longer open your vault without your nominees\' answers.</b> Every nominee has their own questions, and we never see the answers. Choose answers nobody could guess or look up.'
-      : `<b>We can no longer open your vault without your nominees\' answers.</b> ${total - set} nominee${total - set === 1 ? ' has' : 's have'} no questions yet and can't open it until you add some.`)
-    : `<b>Questions set for ${set} of ${total} nominee${total === 1 ? '' : 's'}.</b> Until every nominee has questions, we hold a copy we could open. Once they all do, we delete it.`;
+  $('qBanner').innerHTML = !notSet.length ? '<b>We never hold a key to your vault.</b> Only your nominees\' answers can open it, after our automated checks.'
+    : `<b class="bad">${notSet.map(n => esc(n.name)).join(', ')} ${notSet.length === 1 ? 'is' : 'are'} not set up and can't open your vault.</b>${legacyNote}`;
+  $('notSetBanner').classList.toggle('hide', !notSet.length);
+  $('notSetBanner').innerHTML = notSet.length ? `<b>${notSet.length === 1 ? esc(notSet[0].name) + ' is' : notSet.length + ' nominees are'} not set up.</b> They can't open your vault until you set their three questions.${legacyNote} <a href="#" id="notSetLink" style="color:inherit;font-weight:600;text-decoration:underline">Set questions now</a>` : '';
+  if (notSet.length) $('notSetLink').onclick = e => { e.preventDefault(); document.querySelector('[data-t=noms]').click(); editQ(notSet[0].id); };
   $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks; $('rProof').value = me.policy.proof_required;
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
 window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
 let qFor = null;
+function qFieldsHtml(px, qs) {
+  return [0, 1, 2].map(i => `<div style="margin:12px 0"><label>Question ${i + 1}</label><input id="${px}q${i}" value="${esc(qs[i] || '')}" placeholder="${['Where did we first live together?', 'What did we call the old car?', 'Who sat next to us at our wedding?'][i]}">
+    <label>Answer</label><input id="${px}a${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Other ways they might say it (optional, up to 4)</label><input id="${px}x${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></div>`).join('');
+}
+function readQs(px) {
+  const qs = [0, 1, 2].map(i => ({ q: $(px + 'q' + i).value, answer: $(px + 'a' + i).value, alts: $(px + 'x' + i).value.split(',').map(x => x.trim()).filter(Boolean) }));
+  if (qs.some(x => !x.q.trim() || !x.answer.trim())) throw new Error('Write all three questions and their answers.');
+  return qs;
+}
+$('nQFields').innerHTML = qFieldsHtml('n', ['', '', '']);
 window.editQ = id => {
   const n = me.nominees.find(x => x.id === id); qFor = id; $('qWho').textContent = n.name; $('qMsg').textContent = '';
-  const qs = n.questions || ['', '', ''];
-  $('qFields').innerHTML = [0, 1, 2].map(i => `<div style="margin:12px 0"><label>Question ${i + 1}</label><input id="qq${i}" value="${esc(qs[i] || '')}" placeholder="${['Where did we first live together?', 'What did we call the old car?', 'Who sat next to us at our wedding?'][i]}">
-    <label>Answer</label><input id="qa${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Other ways they might say it (optional, up to 4)</label><input id="qx${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></div>`).join('');
+  $('qFields').innerHTML = qFieldsHtml('q', n.questions || ['', '', '']);
   $('qEdit').classList.remove('hide'); $('qEdit').scrollIntoView({ behavior: 'smooth' });
 };
 $('btnQCancel').onclick = () => { $('qEdit').classList.add('hide'); qFor = null; };
 $('btnQSave').onclick = async () => {
   const m = $('qMsg'), btn = $('btnQSave');
-  const qs = [0, 1, 2].map(i => ({ q: $('qq' + i).value, answer: $('qa' + i).value, alts: $('qx' + i).value.split(',').map(x => x.trim()).filter(Boolean) }));
+  let qs; try { qs = readQs('q'); } catch (x) { m.className = 'small bad'; m.textContent = x.message; return; }
   btn.disabled = true; m.className = 'small'; m.textContent = 'Locking your vault with these answers. This takes a few seconds...';
   try {
     const { serverShare } = await call('/api/me/share');
     const keys = await SMS.buildNomineeKeys(K, serverShare, qs);
     const d = await post(`/api/me/nominees/${qFor}/questions`, keys);
     $('qEdit').classList.add('hide'); me = await call('/api/me'); renderAll();
-    flash(d.removedServerCopy ? 'Done. Every nominee now has questions, so we have deleted our copy: your vault now opens only with their answers.' : 'Questions saved.', true);
+    flash(d.removedServerCopy ? 'Done. Every nominee now has questions, so we have deleted our copy of your key: your vault now opens only with their answers.' : 'Questions saved.', true);
   } catch (x) { m.className = 'small bad'; m.textContent = x.message; }
   btn.disabled = false;
 };
@@ -440,10 +460,18 @@ $('btnSave').onclick = async () => {
   dirty = false; flash('Vault encrypted and saved.', true);
 };
 $('btnNom').onclick = async () => {
+  const m = $('nMsg'), btn = $('btnNom'); m.className = 'small'; m.textContent = '';
+  if (!$('nName').value.trim() || !$('nEmail').value.trim()) { m.className = 'small bad'; m.textContent = 'Add their name and email.'; return; }
+  let qs; try { qs = readQs('n'); } catch (x) { m.className = 'small bad'; m.textContent = x.message; return; }
+  btn.disabled = true; m.textContent = 'Locking your vault with their answers. This takes a few seconds...';
   try {
-    const d = await post('/api/me/nominees', { name: $('nName').value, email: $('nEmail').value, phone: $('nPhone').value, address: $('nAddr').value, relationship: $('nRel').value, notify_early: $('nEarly').checked });
-    ['nName','nEmail','nPhone','nAddr','nRel'].forEach(x => $(x).value = ''); me = await call('/api/me'); renderAll(); flash('Nominee added. Now set their three questions.', true); editQ(d.id);
-  } catch (x) { flash(x.message); }
+    const { serverShare } = await call('/api/me/share');
+    const keys = await SMS.buildNomineeKeys(K, serverShare, qs);
+    await post('/api/me/nominees', { name: $('nName').value, email: $('nEmail').value, phone: $('nPhone').value, address: $('nAddr').value, relationship: $('nRel').value, notify_early: $('nEarly').checked, keys });
+    ['nName','nEmail','nPhone','nAddr','nRel'].forEach(x => $(x).value = ''); $('nEarly').checked = false; $('nQFields').innerHTML = qFieldsHtml('n', ['', '', '']);
+    m.textContent = ''; me = await call('/api/me'); renderAll(); flash('Nominee added. Their answers can now open your vault.', true);
+  } catch (x) { m.className = 'small bad'; m.textContent = x.message; }
+  btn.disabled = false;
 };
 $('btnRules').onclick = async () => {
   try { await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, proof_required: $('rProof').value, veto_days: $('rVeto').value, phone: $('rPhone').value });

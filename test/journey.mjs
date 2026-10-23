@@ -40,22 +40,27 @@ ok(await page.locator('#letter').count() === 0 && !/Letter to your nominees/.tes
 await page.evaluate(async () => { vault.letter = 'Dear family, the house deeds are with Sarah.'; await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) }); });
 await page.click('summary:has-text("Add a secret")'); await page.selectOption('#iType', 'Document location'); await page.fill('#iTitle', 'House deeds'); await page.fill('#iBody', 'Sarah Jones, solicitor'); await page.click('#btnAdd');
 await page.click('#btnSave'); await page.waitForTimeout(2500); await shot('2-saved');
-// 4. Nominees and rules
-await page.click('[data-t=noms]'); await page.fill('#nName', 'Sam Nominee'); await page.fill('#nEmail', 'sam@example.com'); await page.fill('#nRel', 'brother'); await page.click('#btnNom');
-await page.waitForSelector('#nomList .item'); ok((await page.textContent('#nomList')).includes('Sam Nominee'), 'nominee added');
-await page.fill('#nName', 'Kim Nominee'); await page.fill('#nEmail', 'kim@example.com'); await page.click('#btnNom'); await page.waitForTimeout(1500);
+// 4. Nominees and rules. Each nominee is added together with their three questions; we never hold a copy of the key
+await page.click('[data-t=noms]'); await page.fill('#nName', 'Sam Nominee'); await page.fill('#nEmail', 'sam@example.com'); await page.fill('#nRel', 'brother');
+ok((await page.textContent('#tNoms')).includes("Pick questions only your nominee could answer, not things someone could guess or look up online, like a pet's name."), 'gentle warning shown on the questions screen');
+await page.click('#btnNom'); await page.waitForTimeout(500);
+ok((await page.textContent('#nMsg')).includes('Write all three questions') && (await page.$$('#nomList .item')).length === 0, 'a nominee cannot be added without their questions');
+const fillNew = async (who, ans) => { for (let i = 0; i < 3; i++) { await page.fill('#nq' + i, `Question ${i + 1} for ${who}?`); await page.fill('#na' + i, ans[i]); } };
+await fillNew('Sam Nominee', ['Marbella', 'Sea Biscuit', 'Mrs Okafor']); await page.fill('#nx0', 'Puerto Banus');
+await page.locator('#btnNom').scrollIntoViewIfNeeded(); await page.screenshot({ path: process.env.ADDNOM_SHOT || `${OUT}/j-2c-add-nominee.png`, fullPage: true });
+await page.click('#btnNom'); await page.waitForSelector('#nomList .item', { timeout: 60000 }); ok((await page.textContent('#nomList')).includes('Sam Nominee'), 'nominee added with their questions');
+ok((await page.inputValue('#nName')) === '' && (await page.inputValue('#nq0')) === '', 'add form cleared for the next nominee');
+await page.fill('#nName', 'Kim Nominee'); await page.fill('#nEmail', 'kim@example.com'); await fillNew('Kim Nominee', ['Rome', 'Bluebell', 'Mr Jones']); await page.click('#btnNom');
+await page.waitForFunction(() => document.querySelectorAll('#nomList .item').length === 2, null, { timeout: 60000 });
 ok((await page.$$('#nomList .item')).length === 2, 'second nominee added');
-// Questions for each nominee; once both have them we delete our copy
-ok(await page.isVisible('#qEdit'), 'question form opens after adding a nominee');
-for (const [who, ans] of [['Sam Nominee', ['Marbella', 'Sea Biscuit', 'Mrs Okafor']], ['Kim Nominee', ['Rome', 'Bluebell', 'Mr Jones']]]) {
-  await page.locator('#nomList .item', { hasText: who }).locator('button', { hasText: /questions/ }).click();
-  for (let i = 0; i < 3; i++) { await page.fill('#qq' + i, `Question ${i + 1} for ${who}?`); await page.fill('#qa' + i, ans[i]); }
-  await page.fill('#qx0', 'Puerto Banus'); await page.click('#btnQSave');
-  await page.waitForSelector('#qEdit.hide', { state: 'attached', timeout: 60000 });
-}
+// Change one nominee's questions later
+await page.locator('#nomList .item', { hasText: 'Kim Nominee' }).locator('button', { hasText: /questions/ }).click(); ok(await page.isVisible('#qEdit'), 'change-questions form opens');
+for (let i = 0; i < 3; i++) { await page.fill('#qq' + i, `New question ${i + 1}?`); await page.fill('#qa' + i, ['Paris', 'Daisy', 'Mrs Lee'][i]); }
+await page.click('#btnQSave'); await page.waitForSelector('#qEdit.hide', { state: 'attached', timeout: 60000 });
 await page.waitForTimeout(800); await shot('2a-questions');
-ok((await page.textContent('#qBanner')).includes('We can no longer open your vault'), 'banner confirms we can no longer open the vault');
-ok((await page.textContent('#nomList')).split('Questions set').length === 3, 'both nominees show questions set');
+ok((await page.textContent('#qBanner')).includes('We never hold a key to your vault'), 'banner says we never hold a key');
+ok((await page.textContent('#nomList')).split('Questions set').length === 3 && !(await page.textContent('#nomList')).includes('Not set up') && !(await page.isVisible('#notSetBanner')), 'both nominees set up, no warning');
+ok(!(await page.evaluate(() => me.hasRelease)), 'dashboard data: no release copy held');
 // Rehearsal: play a nominee against the interviewer
 await page.click('[data-t=try]'); await page.selectOption('#tryWho', { label: 'Sam Nominee (brother)' }); await page.click('#btnTry');
 await page.waitForSelector('#tryChat .bubble'); ok((await page.textContent('#tryChat')).includes('what has happened'), 'rehearsal starts with the first question');

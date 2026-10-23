@@ -21,14 +21,14 @@ You can verify this in `public/crypto.js` (all encryption) and `public/app.html`
 
 ## How your nominee gets access
 
-- **Nominee questions (the default once set).** For each nominee the owner writes three questions. For every pair of answers (any two of three), and every alternative spelling the owner lists, the browser wraps the vault key with a key made from our server share plus the two answers (`PBKDF2-SHA256`, 200,000 iterations per answer, then `SHA-256`). See `buildNomineeKeys` in `public/crypto.js`. The answers never leave the owner's or nominee's device.
-- **Once every nominee has questions, we delete our own openable copy.** From then on we cannot open the vault without the nominees' answers.
+- **Nominee questions (required for every nominee).** When adding each nominee the owner writes three questions. For every pair of answers (any two of three), and every alternative spelling the owner lists, the browser wraps the vault key with a key made from our server share plus the two answers (`PBKDF2-SHA256`, 200,000 iterations per answer, then `SHA-256`). See `buildNomineeKeys` in `public/crypto.js`. The answers never leave the owner's or nominee's device.
+- **We never hold a copy we could open.** New vaults are sealed with no release copy of the vault key, and a nominee can only be added together with their questions. Vaults sealed before this change kept a standard-mode copy; it is still deleted automatically once every nominee has questions, and the owner is asked to set them.
 - **Release:** after the checks, the nominee sees the questions and types answers on their own device. Their browser sends us a proof derived from the answers; if it matches, we release our share and the matching locked copy, and the vault is decrypted in their browser. Wrong answers get escalating waits: two free tries, then an hour, a day, then a week each time. Attempts are counted atomically, so parallel requests can't skip the waits.
 - **At rest:** our server share and the answer verifiers are protected with a key held only as a Worker secret, so a copy of the database alone is not enough to test guesses.
 
 **Stated plainly, the limits:**
 - Answers are words, not long random codes. Anyone with both our database and our Worker secret (including us, in theory) could try guessing them offline. Choose answers nobody could guess or look up.
-- Until every nominee has questions, we hold a copy we could open (standard mode).
+- Older vaults only: until every nominee has questions, we hold a copy we could open (standard mode). New vaults never have one.
 - The website delivers the encryption code, so you are trusting the code we serve. It is published here so it can be checked.
 - If none of a nominee's answers can be recalled, that nominee cannot open the vault. That is deliberate.
 

@@ -24,10 +24,10 @@ r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { co
 const v = await SMS.createVault(k.ownerKey, { letter: 'Dear Nadia, the deeds are with Sarah Jones.', items: [{ title: 'Email', body: 'olivia@example.com / horse battery' }] });
 await call('/api/me/vault', { method: 'POST', token: tok, body: v.upload });
 await call('/api/me/policy', { method: 'POST', token: tok, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 2, veto_days: 3 } });
-const nid = (await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nadia Nominee', email: nomEmail, relationship: 'sister' } })).d.id;
 const keys = await SMS.buildNomineeKeys(v.K, (await call('/api/me/share', { token: tok })).d.serverShare,
   [{ q: 'Where did we spend every summer as children?', answer: 'Saint-Tropez' }, { q: "What was Grandpa's dog called?", answer: 'Biscuit' }, { q: 'What did Mum always burn?', answer: 'The toast' }]);
-ok((await call(`/api/me/nominees/${nid}/questions`, { method: 'POST', token: tok, body: keys })).d.removedServerCopy, 'owner set questions; our copy deleted');
+r = await call('/api/me/nominees', { method: 'POST', token: tok, body: { name: 'Nadia Nominee', email: nomEmail, relationship: 'sister', keys } });
+ok(r.s === 200 && (await call('/api/me', { token: tok })).d.hasRelease === false, 'nominee added with their questions; we never held a copy');
 
 const browser = await chromium.launch(); const page = await (await browser.newContext({ ...devices['iPhone 13'] })).newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message));
 await page.goto(B + '/claim'); await page.fill('#cName', 'Nadia Nominee'); await page.fill('#cEmail', nomEmail); await page.click('#f1 button'); await page.waitForSelector('#s2:not(.hide)');
