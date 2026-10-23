@@ -21,7 +21,7 @@ const inv = 'NUI' + Date.now(); await call('/api/admin/invites', { method: 'POST
 const owner = `qa+nui${Date.now()}@example.com`, nomEmail = `qa+nuinom${Date.now()}@example.com`, salt = SMS.b64(SMS.rand(16)), k = await SMS.deriveFromPassword('a long passphrase for testing', salt);
 let r = await call('/api/register', { method: 'POST', body: { email: owner, name: 'Olivia Owner', authKey: k.authKey, kdfSalt: salt, inviteCode: inv } });
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tok = r.d.token;
-const v = await SMS.createVault(k.ownerKey, { letter: 'Dear Nadia, the deeds are with Sarah Jones.', items: [{ title: 'Email', body: 'olivia@example.com / horse battery' }] });
+const v = await SMS.createVault(k.ownerKey, { letter: 'Dear Nadia, the deeds are with Sarah Jones.', items: [{ title: 'Email', body: 'olivia@example.com / horse battery' }, { type: 'Password / login', title: 'Old bank login', body: 'barclays / see the safe' }] });
 await call('/api/me/vault', { method: 'POST', token: tok, body: v.upload });
 await call('/api/me/policy', { method: 'POST', token: tok, body: { proof_required: 'none', checkin_days: 90, grace_weeks: 2, veto_days: 3 } });
 const keys = await SMS.buildNomineeKeys(v.K, (await call('/api/me/share', { token: tok })).d.serverShare,
@@ -52,5 +52,6 @@ await page.fill('#qa0', 'saint tropez'); await page.fill('#qa1', 'no idea'); awa
 await page.waitForSelector('#vaultOut .item', { timeout: 30000 }); await page.screenshot({ path: `${OUT}/n-2-opened.png`, fullPage: true });
 ok((await page.textContent('#vaultOut')).includes('the deeds are with Sarah Jones'), 'vault opened with two of three answers, on the device');
 ok((await page.textContent('#vaultOut')).includes('A letter for you'), 'an existing letter is still shown to the nominee');
+ok((await page.textContent('#vaultOut')).includes('olivia@example.com / horse battery') && (await page.textContent('#vaultOut')).includes('Old bank login') && (await page.textContent('#vaultOut')).includes('barclays / see the safe'), 'nominee sees both a new untyped secret and an older typed one');
 console.log('page errors:', errs.length ? errs : 'none'); console.log('owner:', owner);
 await browser.close(); console.log(fails ? `${fails} FAILED` : 'ALL PASSED'); process.exit(fails ? 1 : 0);

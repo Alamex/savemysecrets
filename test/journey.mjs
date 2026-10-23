@@ -37,12 +37,14 @@ await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok(true, 'v
 ok(!(await page.isVisible('#tfaBanner')), 'no 2FA banner when 2FA is on');
 // 3. Use the vault: a second item, save. The letter field is gone; simulate a vault saved before then, which has a letter
 ok(await page.locator('#letter').count() === 0 && !/Letter to your nominees/.test(await page.textContent('#vDash')), 'no letter field on the vault screen');
-await page.evaluate(async () => { vault.letter = 'Dear family, the house deeds are with Sarah.'; await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) }); });
-await page.click('summary:has-text("Add a secret")'); await page.selectOption('#iType', 'Document location'); await page.fill('#iTitle', 'House deeds'); await page.fill('#iBody', 'Sarah Jones, solicitor'); await page.click('#btnAdd');
+// Also an older secret saved with a type label, from before the Type dropdown was removed
+await page.evaluate(async () => { vault.letter = 'Dear family, the house deeds are with Sarah.'; vault.items.push({ type: 'Password / login', title: 'Old bank login', body: 'barclays / see the safe' }); await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) }); });
+await page.click('summary:has-text("Add a secret")'); ok(await page.locator('#iType').count() === 0 && !/>Type</.test(await page.innerHTML('#tVault')), 'Add a secret has no Type dropdown'); await page.fill('#iTitle', 'House deeds'); await page.fill('#iBody', 'Sarah Jones, solicitor'); await page.click('#btnAdd');
 await page.click('#btnSave'); await page.waitForTimeout(2500); await shot('2-saved');
 // 4. Nominees and rules. Each nominee is added together with their three questions; we never hold a copy of the key
 await page.click('[data-t=noms]'); await page.fill('#nName', 'Sam Nominee'); await page.fill('#nEmail', 'sam@example.com'); await page.fill('#nRel', 'brother');
 ok((await page.textContent('#tNoms')).includes("Pick questions only your nominee could answer, not things someone could guess or look up online, like a pet's name."), 'gentle warning shown on the questions screen');
+ok(await page.evaluate(() => [...document.querySelectorAll('#tNoms input, #tNoms textarea')].filter(e => e.placeholder && e.id !== 'nPhone').map(e => e.id)).then(x => x.length === 0), 'no example placeholders on the nominee or question fields');
 await page.click('#btnNom'); await page.waitForTimeout(500);
 ok((await page.textContent('#nMsg')).includes('Write all three questions') && (await page.$$('#nomList .item')).length === 0, 'a nominee cannot be added without their questions');
 const fillNew = async (who, ans) => { for (let i = 0; i < 3; i++) { await page.fill('#nq' + i, `Question ${i + 1} for ${who}?`); await page.fill('#na' + i, ans[i]); } };
@@ -55,6 +57,7 @@ await page.waitForFunction(() => document.querySelectorAll('#nomList .item').len
 ok((await page.$$('#nomList .item')).length === 2, 'second nominee added');
 // Change one nominee's questions later
 await page.locator('#nomList .item', { hasText: 'Kim Nominee' }).locator('button', { hasText: /questions/ }).click(); ok(await page.isVisible('#qEdit'), 'change-questions form opens');
+ok(await page.evaluate(() => [0, 1, 2].every(i => !document.getElementById('qq' + i).placeholder && !document.getElementById('qa' + i).placeholder)), 'Questions for <name>: no example placeholders');
 for (let i = 0; i < 3; i++) { await page.fill('#qq' + i, `New question ${i + 1}?`); await page.fill('#qa' + i, ['Paris', 'Daisy', 'Mrs Lee'][i]); }
 await page.click('#btnQSave'); await page.waitForSelector('#qEdit.hide', { state: 'attached', timeout: 60000 });
 await page.waitForTimeout(800); await shot('2a-questions');
@@ -72,13 +75,22 @@ await page.click('summary:has-text("Send us feedback")'); await page.fill('#fbTe
 await page.click('[data-t=rules]'); await page.selectOption('#rDays', '180'); await page.selectOption('#rWeeks', '8'); await page.selectOption('#rVeto', '14'); await page.click('#btnRules'); await page.waitForTimeout(1500); await shot('3-rules');
 const due = new Date(Date.now() + 180 * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 ok((await page.textContent('#statusLine')).includes(due), 'next check-in moves to match new frequency (' + due + ')');
-if (await page.isVisible('#btnFine')) { await page.click('#btnFine'); await page.waitForTimeout(1000); ok(true, '"I\'m fine" check-in pressed'); }
+ok((await page.textContent('#statusLine')).includes('All good') && !(await page.isVisible('#btnFine')), 'all good and check-in in the future: no "I\'m fine" button');
+await page.locator('.card:has(#statusLine)').screenshot({ path: process.env.STATUS_SHOT || `${OUT}/j-3a-status-no-button.png` });
+// Miss a check-in (local escalation run, 181 days on): the button appears, and tapping it puts things right
+await fetch(B + '/api/admin/run-escalation', { method: 'POST', headers: { authorization: 'Bearer ' + ADM, 'content-type': 'application/json' }, body: JSON.stringify({ at: Date.now() + 181 * 86400000, emails: [email] }) });
+await page.evaluate(async () => { me = await call('/api/me'); renderAll(); });
+ok((await page.textContent('#statusLine')).includes('You missed a check-in') && await page.isVisible('#btnFine'), 'missed check-in: "I\'m fine" button shown');
+await page.click('#btnFine'); await page.waitForFunction(() => document.getElementById('btnFine').classList.contains('hide'), null, { timeout: 15000 });
+ok((await page.textContent('#statusLine')).includes('All good'), '"I\'m fine" check-in pressed; back to all good and the button hides');
 // 5. Log out, log back in, check everything persisted
 await page.click('#logout'); await page.waitForSelector('#vAuth:not(.hide)'); ok(true, 'logged out');
 await page.fill('#lEmail', email); await page.fill('#lPw', pw); await page.fill('#lCode', totp(secret)); await page.click('#fLogin button');
 await page.waitForSelector('#vDash:not(.hide)', { timeout: 30000 }); ok(true, 'logged back in with password + 2FA');
 ok((await page.evaluate(() => vault.letter)) === 'Dear family, the house deeds are with Sarah.', 'existing letter kept after adding a secret and saving, and after re-login');
 const vtext = await page.textContent('#items'); ok(vtext.includes('Email login') && vtext.includes('House deeds'), 'both secrets decrypted after re-login');
+ok(vtext.includes('Old bank login') && vtext.includes('Password / login') && vtext.includes('barclays / see the safe'), 'an older typed secret still shows, with its type label');
+{ const its = await page.evaluate(() => vault.items); ok(its.find(i => i.title === 'House deeds')?.type === undefined && its.find(i => i.title === 'Email login')?.type === undefined, 'new secrets are stored as title and details only'); }
 await page.click('[data-t=noms]'); ok((await page.$$('#nomList .item')).length === 2, 'nominees persisted');
 await page.click('[data-t=rules]'); ok(await page.inputValue('#rDays') === '180' && await page.inputValue('#rWeeks') === '8' && await page.inputValue('#rVeto') === '14', 'rules persisted');
 await shot('4-relogin');

@@ -79,9 +79,11 @@ function layout(inner) {
 const toText = html => html.replace(/<a [^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/g, '$2: $1').replace(/<br\s*\/?>/g, '\n').replace(/<\/p>/g, '\n\n')
   .replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/\n{3,}/g, '\n\n').trim();
 
-async function sendEmail(env, userId, to, subject, inner) {
-  const html = layout(inner), text = toText(inner) + '\n\nSave My Secrets (alpha). Questions? support@savemysecrets.com';
+// firstContact: the first email someone gets from us also asks them to add our address to their contacts
+async function sendEmail(env, userId, to, subject, inner, { firstContact = false } = {}) {
   const from = env.MAIL_FROM || 'hello@savemysecrets.com';
+  if (firstContact) inner += `<p style="color:#6b7280;font-size:14px">Tip: add ${esc(from)} to your contacts so our emails never end up in spam.</p>`;
+  const html = layout(inner), text = toText(inner) + '\n\nSave My Secrets (alpha). Questions? support@savemysecrets.com';
   try {
     if (env.CF_EMAIL_TOKEN && env.CF_ACCOUNT_ID) {
       // Cloudflare Email Service (REST), sent from our own domain
@@ -385,7 +387,7 @@ async function api(req, env) {
     const ins = await env.DB.prepare('INSERT OR IGNORE INTO signups (email, source, ip, ua) VALUES (?,?,?,?)')
       .bind(email, String(body.source || 'site').slice(0, 40), req.headers.get('cf-connecting-ip') || '', (req.headers.get('user-agent') || '').slice(0, 300)).run();
     if (ins.meta.changes && p === '/api/waitlist') await sendEmail(env, null, email, "Save My Secrets access request received",
-      `<p>Hi,</p><p>Thanks, we've got your request. We approve people personally during the alpha and will email you when you're in.</p>`);
+      `<p>Hi,</p><p>Thanks, we've got your request. We approve people personally during the alpha and will email you when you're in.</p>`, { firstContact: true });
     return json({ ok: true });
   }
 
@@ -579,7 +581,7 @@ async function api(req, env) {
 <p><b>1. Tell your nominees where to go.</b> Leave a message in your will or a letter telling them to visit savemysecrets.com. They don't need a card or a code.</p>
 <p><b>2. We'll check in.</b> Your first check-in is on ${next}. One tap and you're done. Logging in counts too.</p>
 <p><b>3. Keep your recovery codes safe</b>, away from your phone. We can't reset your master password.</p>
-${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
+${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`, { firstContact: true });
         }
       } else {
         await env.DB.prepare('UPDATE users SET vault_ct=?, wrapped_owner=? WHERE id=?').bind(vault, wrappedOwner, u.id).run();
@@ -614,7 +616,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
       ]);
       await logEvent(env, u.id, 'nominee_questions_set', { nominee: id, removedServerCopy: false });
       if (notify_early) await sendEmail(env, u.id, email, `${u.name} has named you as a nominee`,
-        `<p>Hi ${esc(name)},</p><p>${esc(u.name)} has named you as one of their nominees on ${BRAND}. If anything ever happens to them, they've left personal messages and important information for you.</p><p>You don't need to do anything now. If ${esc(u.name.split(' ')[0])} ever stops responding to our check-ins, we'll be in touch. If you ever need to, start at savemysecrets.com.</p>`);
+        `<p>Hi ${esc(name)},</p><p>${esc(u.name)} has named you as one of their nominees on ${BRAND}. If anything ever happens to them, they've left personal messages and important information for you.</p><p>You don't need to do anything now. If ${esc(u.name.split(' ')[0])} ever stops responding to our check-ins, we'll be in touch. If you ever need to, start at savemysecrets.com.</p>`, { firstContact: true });
       return json({ ok: true, id });
     }
     if (p.startsWith('/api/me/nominees/') && m === 'DELETE') {
@@ -671,7 +673,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
     const id = rid(12), code = otp6();
     await env.DB.prepare('INSERT INTO claimants (id,email,name,otp_hash,otp_expires,otp_attempts,verified,created_at) VALUES (?,?,?,?,?,0,0,?)')
       .bind(id, email, name, await sha256hex(code + id), now() + 20 * 60000, now()).run();
-    await sendEmail(env, null, email, `Your verification code: ${code}`, `<p>Hi ${esc(name)},</p><p>Your verification code is</p><p style="font-size:32px;letter-spacing:6px;margin:8px 0"><b>${code}</b></p><p>It expires in 20 minutes. If you didn't ask for this, you can ignore this email.</p>`);
+    await sendEmail(env, null, email, `Your verification code: ${code}`, `<p>Hi ${esc(name)},</p><p>Your verification code is</p><p style="font-size:32px;letter-spacing:6px;margin:8px 0"><b>${code}</b></p><p>It expires in 20 minutes. If you didn't ask for this, you can ignore this email.</p>`, { firstContact: true });
     return json({ ok: true, claimantId: id });
   }
   if (p === '/api/claimant/verify' && m === 'POST') {
@@ -869,7 +871,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`);
         const link = `${baseUrl(req, env)}/app?code=${encodeURIComponent(code)}&email=${encodeURIComponent(e)}`;
         const ok = await sendEmail(env, null, e, 'You\'re approved for Save My Secrets', 
           `<p>Hi,</p><p>You asked for early access to Save My Secrets, an encrypted vault that passes your important information to the people you choose. You're approved for the alpha. Click the button below to create your vault.</p>
-${button(link, 'Create your vault')}<p style="color:#6b7280;font-size:14px">This link is just for you and works once.</p><p style="color:#6b7280;font-size:14px">Didn't ask for this? Just ignore this email.</p><p>Neil<br>Save My Secrets</p>`);
+${button(link, 'Create your vault')}<p style="color:#6b7280;font-size:14px">This link is just for you and works once.</p><p style="color:#6b7280;font-size:14px">Didn't ask for this? Just ignore this email.</p><p>Neil<br>Save My Secrets</p>`, { firstContact: true });
         if (!ok) {
           // 3. Send failed: switch off the new code only; any earlier codes keep working
           await env.DB.prepare('UPDATE invites SET active=0 WHERE code=?').bind(code).run();

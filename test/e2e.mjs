@@ -26,6 +26,10 @@ function totp(secret) { // RFC 6238 in node
   const h = crypto.createHmac('sha1', Buffer.from(out)).update(buf).digest(); const o = h[19] & 15;
   return String(((h[o] & 127) << 24 | h[o + 1] << 16 | h[o + 2] << 8 | h[o + 3]) % 1e6).padStart(6, '0');
 }
+// First emails carry a tip to add our From address (MAIL_FROM, default hello@savemysecrets.com) to contacts; later ones don't
+const TIP = 'Tip: add hello@savemysecrets.com to your contacts so our emails never end up in spam.';
+const mailTo = async (to, subj) => (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind.startsWith('email') && e.detail.includes(to) && e.detail.includes(subj));
+const hasTip = async (to, subj) => { const e = await mailTo(to, subj); return !!e && e.detail.includes(TIP); };
 const otpFor = async to => { const e = (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind.startsWith('email') && e.detail.includes('verification code') && e.detail.includes(to)); return JSON.parse(e.detail).html.match(/<b>(\d{6})<\/b>/)[1]; };
 async function claimant(name, mail) {
   const s1 = await call('/api/claimant/start', { method: 'POST', body: { name, email: mail } });
@@ -64,6 +68,7 @@ ok((await call('/api/waitlist', { method: 'POST', body: { email: approveEmail2, 
 const approveRes = await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { emails: [approveEmail1, approveEmail2] } });
 ok(approveRes.s === 200 && approveRes.d.sent === 2, 'admin approved two people');
 const events = (await call('/api/admin/events', { token: ADM })).d;
+ok(await hasTip(wlEmail, 'access request received') && await hasTip(approveEmail1, 'approved for Save My Secrets'), 'first emails: access request and approval carry the contacts tip');
 const email1Event = events.find(e => e.kind.startsWith('email') && e.detail.includes(approveEmail1) && e.detail.includes('approved'));
 const email2Event = events.find(e => e.kind.startsWith('email') && e.detail.includes(approveEmail2) && e.detail.includes('approved'));
 const code1 = email1Event ? JSON.parse(email1Event.detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
@@ -121,6 +126,7 @@ ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.uploa
 ok(!(await call('/api/me', { token: tok })).d.hasRelease && !(await call('/api/me', { token: tok })).d.wrappedOwner, 'rejected seals stored nothing');
 ok((await call('/api/me/vault', { method: 'POST', token: tok, body: v.upload })).s === 200, 'vault sealed');
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(email) && e.detail.includes('Your vault is set up')), 'welcome email after sealing');
+ok(await hasTip(email, 'Your vault is set up'), 'welcome email carries the contacts tip');
 { const m1 = (await call('/api/me', { token: tok })).d; ok(m1.releaseMode === 'questions' && m1.hasRelease === false, 'new vault: no release copy stored, questions-only mode'); }
 ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { ...v.upload, wrappedRelease: stdCopy } })).s === 400, 'sealed vault: wrapped_release upload still refused');
 ok((await call('/api/me/vault', { method: 'POST', token: tok, body: (await SMS.createVault(k.ownerKey, {})).upload })).s === 409, 'our share cannot be replaced once sealed');
@@ -244,6 +250,7 @@ r = await call('/api/me/nominees/legacyL1/questions', { method: 'POST', token: t
 ok(r.s === 200 && r.d.removedServerCopy === false && r.d.allSet === false && (await call('/api/me', { token: tokL })).d.hasRelease === true, 'copy kept while one nominee still has no questions');
 await (call('/api/admin/run-escalation', { method: 'POST', token: ADM, body: { at: Date.now() + 91 * DAY, emails: [emailL] } }));
 ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.detail.includes(emailL) && e.detail.includes('Lou Two has no questions yet') && e.detail.includes('Set questions for every nominee so we can delete our copy of your key.')), 'check-in email asks the owner to finish so we can delete our copy');
+{ const ci = await mailTo(emailL, 'Quick check-in'); ok(!!ci && !ci.detail.includes('Tip: add') && !ci.detail.includes('to your contacts'), 'check-in email has no contacts tip'); }
 await call('/api/me/checkin', { method: 'POST', token: tokL, body: {} });
 r = await call('/api/me/nominees/legacyL2/questions', { method: 'POST', token: tokL, body: await SMS.buildNomineeKeys(vL.K, shareL, QS) });
 ok(r.s === 200 && r.d.removedServerCopy === true && r.d.allSet === true, 'our copy deleted once every nominee has questions');
@@ -256,7 +263,8 @@ r = await call('/api/register', { method: 'POST', body: { email: email2, name: '
 r = await call('/api/2fa/enable', { method: 'POST', token: r.d.token, body: { code: totp(r.d.totpSecret) } }); const tok2 = r.d.token;
 const v2 = await SMS.createVault(k2Veto.ownerKey, { items: [] }); await call('/api/me/vault', { method: 'POST', token: tok2, body: v2.upload });
 await call('/api/me/policy', { method: 'POST', token: tok2, body: { proof_required: 'none', checkin_days: 30, grace_weeks: 2, veto_days: 7 } });
-ok((await addNom(tok2, v2.K, { name: 'Bro', email: 'bro@example.com' })).s === 200, 'nominee added with their questions in one step');
+ok((await addNom(tok2, v2.K, { name: 'Bro', email: 'bro@example.com', notify_early: true })).s === 200, 'nominee added with their questions in one step');
+ok(await hasTip('bro@example.com', 'has named you as a nominee'), 'named-as-nominee email carries the contacts tip');
 const me2 = (await call('/api/me', { token: tok2 })).d; const uid2 = me2.nominees[0].user_id;
 const bt = await claimant('Bro', 'bro@example.com');
 r = await call('/api/claim/find', { method: 'POST', token: bt, body: { u: uid2 } }); const ct2 = r.d.token;

@@ -109,7 +109,6 @@
     <div id="items"></div>
     <div class="notice">Alpha: please don't store anything mission critical yet.</div>
     <details><summary>Add a secret</summary>
-      <label>Type</label><select id="iType"><option>Password / login</option><option>Account / bank</option><option>Document location</option><option>Instructions</option><option>Wallet / seed phrase</option><option>Note</option></select>
       <label>Title</label><input id="iTitle">
       <label>Details</label><textarea id="iBody" rows="8" style="min-height:220px;resize:vertical"></textarea><p></p>
       <button id="btnAdd" class="ghost" style="width:100%">Add to vault</button>
@@ -134,7 +133,7 @@
       <label>Email</label><input id="nEmail" type="email">
       <label>Mobile</label><input id="nPhone" type="tel" placeholder="+ country code and number">
       <label>Postal address</label><textarea id="nAddr" style="min-height:70px"></textarea>
-      <label>Relationship to you</label><input id="nRel" placeholder="e.g. wife, brother, solicitor">
+      <label>Relationship to you</label><input id="nRel">
       <label class="check"><input type="checkbox" id="nEarly"> Tell them now that I've named them (otherwise they hear nothing until it matters)</label>
       <h3 style="margin:18px 0 4px">Their three questions</h3>
       <p class="small muted">Required. Their answers are the only way they can open your vault, and we never see them. Any two correct answers will open it.</p>
@@ -367,7 +366,7 @@ async function loadDash() {
 }
 
 $('btnSeal').onclick = async () => {
-  const items = $('sealTitle').value ? [{ type: 'Note', title: $('sealTitle').value, body: $('sealBody').value }] : [];
+  const items = $('sealTitle').value ? [{ title: $('sealTitle').value, body: $('sealBody').value }] : [];
   vault = { items };
   const v = await SMS.createVault(ownerKey, vault);
   await post('/api/me/vault', v.upload);
@@ -390,16 +389,17 @@ function renderAll() {
     veto_window: '<b class="bad">Your vault is about to be released.</b> Tap below to stop it.', released: 'This vault has been released.' }[me.state] || me.state;
   const claimText = me.openClaim ? '<br><b class="bad">One of your nominees has asked for your vault.</b> If you\'re fine, tap below and the request is closed.' : '';
   const recText = me.totpEnabled && me.recoveryLeft === 0 ? '<br><span class="small bad">You have no recovery codes left. Contact us to set up new ones.</span>' : '';
-  // Never say "All good" with no nominees; the "I'm fine" button shows whenever a check-in is due or anything is in progress
+  // Never say "All good" with no nominees. The "I'm fine" button only shows when a check-in is due or anything is in progress
+  // (logging in already counts as a check-in, so there's nothing to tap when all is well)
   const needsFineButton = due || ['overdue', 'nominees_contacted', 'veto_window'].includes(me.state) || me.openClaim;
   const notSet = me.nominees.filter(n => !n.hasQuestions);
   const qText = notSet.length ? `<b class="bad">${notSet.length} not set up</b>` : 'Only your nominees\' answers can open it';
   const statusSuffix = me.nominees.length > 0 ? `<br><span class="small muted">${me.nominees.length} nominee${me.nominees.length === 1 ? '' : 's'} · ${qText}</span>` : '';
   $('noNomineePrompt').classList.toggle('hide', me.nominees.length > 0);
   $('tfaBanner').classList.toggle('hide', !!me.totpEnabled); $('tfaSettings').classList.toggle('hide', !!me.totpEnabled);
-  $('btnFine').classList.toggle('hide', me.nominees.length === 0 && !needsFineButton);
+  $('btnFine').classList.toggle('hide', !needsFineButton);
   $('statusLine').innerHTML = `${stateText}${claimText}${recText}${statusSuffix}`;
-  $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b><span class="small muted">${esc(it.type)}</span>
+  $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b>${it.type ? `<span class="small muted">${esc(it.type)}</span>` : ''}
     <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
   $('nomList').innerHTML = me.nominees.map(n => `<div class="item"${n.hasQuestions ? '' : ' style="border:2px solid var(--bad)"'} data-nom="${n.id}"><b>${esc(n.name)}</b>${n.hasQuestions ? '' : ' <span class="small" style="background:var(--bad);color:#fff;border-radius:6px;padding:1px 7px;margin-right:6px;font-weight:600">Not set up</span>'}<span class="small muted">${[n.relationship, n.email, n.phone].filter(Boolean).map(esc).join(' · ')}</span>
     <p class="small ${n.hasQuestions ? 'ok' : 'bad'}" style="margin:6px 0">${n.hasQuestions ? 'Questions set: ' + n.questions.map(esc).join(' · ') : '<b>Not set up: they can\'t open your vault.</b> Set their three questions now.'}</p>
@@ -418,7 +418,7 @@ function renderAll() {
 window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
 let qFor = null;
 function qFieldsHtml(px, qs) {
-  return [0, 1, 2].map(i => `<div style="margin:12px 0"><label>Question ${i + 1}</label><input id="${px}q${i}" value="${esc(qs[i] || '')}" placeholder="${['Where did we first live together?', 'What did we call the old car?', 'Who sat next to us at our wedding?'][i]}">
+  return [0, 1, 2].map(i => `<div style="margin:12px 0"><label>Question ${i + 1}</label><input id="${px}q${i}" value="${esc(qs[i] || '')}">
     <label>Answer</label><input id="${px}a${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Other ways they might say it (optional, up to 4)</label><input id="${px}x${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></div>`).join('');
 }
 function readQs(px) {
@@ -451,7 +451,8 @@ let dirty = false;
 window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
 $('btnAdd').onclick = () => {
   if (!$('iTitle').value) return flash('Give it a title');
-  vault.items.push({ type: $('iType').value, title: $('iTitle').value, body: $('iBody').value });
+  // New secrets are just a title and details; older ones may also carry a type label, which is still shown
+  vault.items.push({ title: $('iTitle').value, body: $('iBody').value });
   $('iTitle').value = $('iBody').value = ''; dirty = true; renderAll(); flash('Added. Save the vault to make it permanent.');
 };
 $('btnSave').onclick = async () => {
