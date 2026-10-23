@@ -809,12 +809,15 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`, { firstContact: true }
   }
 
   // ---- admin review ----
+  // Admin screens show "User N" instead of raw ids: N is the user's place in sign-up order (oldest first, ties by id).
+  // Worked out on the fly, so no schema change; deleted users simply leave a gap. Admin endpoints only.
+  const USER_NO = '(SELECT id AS uid, ROW_NUMBER() OVER (ORDER BY created_at, id) AS user_no FROM users)';
   if (p.startsWith('/api/admin')) {
     if (!isAdmin(req, env)) return err('Not authorised', 401);
     if (p === '/api/admin/claims' && m === 'GET') {
-      const { results } = await env.DB.prepare(`SELECT c.*, u.name AS owner_name, u.email AS owner_email, u.proof_required, u.state AS owner_state,
+      const { results } = await env.DB.prepare(`SELECT c.*, un.user_no, u.name AS owner_name, u.email AS owner_email, u.proof_required, u.state AS owner_state,
         n.name AS nominee_name, n.relationship FROM claims c JOIN users u ON u.id=c.user_id LEFT JOIN nominees n ON n.id=c.nominee_id
-        ORDER BY c.updated_at DESC LIMIT 100`).all();
+        LEFT JOIN ${USER_NO} un ON un.uid=c.user_id ORDER BY c.updated_at DESC LIMIT 100`).all();
       return json(results);
     }
     if (p === '/api/admin/decide' && m === 'POST') {
@@ -852,7 +855,7 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`, { firstContact: true }
       return json(await runEscalation(env, baseUrl(req, env), at, only));
     }
     if (p === '/api/admin/events' && m === 'GET') {
-      const { results } = await env.DB.prepare('SELECT * FROM events ORDER BY id DESC LIMIT 200').all();
+      const { results } = await env.DB.prepare(`SELECT e.*, un.user_no FROM events e LEFT JOIN ${USER_NO} un ON un.uid=e.user_id ORDER BY e.id DESC LIMIT 200`).all();
       return json(results);
     }
     if (p === '/api/admin/waitlist' && m === 'GET') {
@@ -887,7 +890,7 @@ ${button(link, 'Create your vault')}<p style="color:#6b7280;font-size:14px">This
       return json({ ok: true, sent, failed });
     }
     if (p === '/api/admin/feedback' && m === 'GET') {
-      const { results } = await env.DB.prepare('SELECT * FROM feedback ORDER BY id DESC LIMIT 200').all();
+      const { results } = await env.DB.prepare(`SELECT f.*, un.user_no FROM feedback f LEFT JOIN ${USER_NO} un ON un.uid=f.user_id ORDER BY f.id DESC LIMIT 200`).all();
       return json(results);
     }
     if (p === '/api/admin/invites' && m === 'GET') {
