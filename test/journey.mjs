@@ -20,13 +20,28 @@ const browser = await chromium.launch(); const ctx = await browser.newContext({ 
 const page = await ctx.newPage(); const errs = []; page.on('pageerror', e => errs.push(e.message)); page.on('response', r => { if (r.status() === 401 && !r.url().includes('/api/login')) console.log('   401 from', r.request().method(), r.url()); });
 const shot = n => page.screenshot({ path: `${OUT}/j-${n}.png`, fullPage: true });
 const email = `qa+journey${Date.now()}@example.com`, pw = 'a long and memorable passphrase';
+// 0. Homepage: the request-access box is clearly the visitor's own email
+await page.goto(B + '/'); ok((await page.textContent('label[for=wlEmail]')).trim() === 'Your email' && await page.isVisible('label[for=wlEmail]') && !(await page.getAttribute('#wlEmail', 'placeholder')), 'homepage request-access box is labelled "Your email", with no placeholder');
 // 1. Sign up via the discreet 'Have an invite code?' link on /app (the homepage no longer has an invite-code button)
 await page.goto(B + '/app'); await page.click('#vAuth .tabs [data-t=signup]'); await page.click('#showCodeLink'); await page.fill('#iCode', inv); await page.click('#fInvite button');
 await page.waitForSelector('#fSignup:not(.hide)'); ok(true, 'invite accepted');
 await page.fill('#sName', 'Journey Tester'); await page.fill('#sEmail', email); await page.click('#sPhone'); await page.keyboard.type('+971 50 000 0009'); ok(await page.inputValue('#sPhone') === '+971 50 000 0009', 'typing + into the phone field does not double it');
-await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
+ok((await page.textContent('#sPhoneHint')).includes('Include country code') && !(await page.getAttribute('#sPhone', 'placeholder')), 'mobile hint under the label, not inside the box');
+// Phone: lenient, checked on blur; 00 becomes +; a local number gets a friendly message; empty is fine
+await page.fill('#sPhone', '07700 900123'); ok(!(await page.textContent('#sPhoneMsg')), 'no phone message while typing');
+await page.click('#sName'); ok((await page.textContent('#sPhoneMsg')).includes('country code'), 'local-format mobile: friendly country-code message on blur');
+await page.fill('#sPhone', '0044 (7700) 900-123'); await page.click('#sName'); ok(await page.inputValue('#sPhone') === '+44 (7700) 900-123' && !(await page.textContent('#sPhoneMsg')), '00 at the start becomes +, brackets and dashes accepted');
+await page.fill('#sPhone', '+971 50 000 0009'); await page.click('#sName');
+// Password: rules shown up front, show/hide toggles, live match indicator
+ok((await page.textContent('#sPwHint')).includes('At least 12 characters'), 'password rules shown up front');
+await page.fill('#sPw', pw); await page.fill('#sPw2', pw.slice(0, 5)); ok((await page.textContent('#pwMatch')).includes("don't match") && await page.getAttribute('#pwMatch', 'class').then(c => c.includes('bad')), 'confirm field shows a cross and text while passwords differ');
+await page.click('.eye[data-for=sPw]'); ok(await page.getAttribute('#sPw', 'type') === 'text' && await page.getAttribute('.eye[data-for=sPw]', 'aria-pressed') === 'true' && await page.getAttribute('.eye[data-for=sPw]', 'aria-label') === 'Show password', 'eye button shows the password (aria-pressed true)');
+await page.click('.eye[data-for=sPw]'); ok(await page.getAttribute('#sPw', 'type') === 'password' && await page.getAttribute('.eye[data-for=sPw]', 'aria-pressed') === 'false', 'eye button hides it again');
+ok(await page.getAttribute('.eye[data-for=sPw2]', 'aria-label') === 'Show confirm password', 'confirm field has its own eye button');
+await page.fill('#sPw', pw); await page.fill('#sPw2', pw); ok((await page.textContent('#pwMatch')).includes('\u2713 Passwords match'), 'confirm field shows a tick and text when they match'); await page.check('#sAlpha'); await page.click('#fSignup button.accent');
 await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }).catch(async e => { console.log('   flash:', await page.textContent('#flash')); throw e; }); await shot('0-2fa'); ok((await page.getAttribute('#otpLink', 'href')).startsWith('otpauth://'), 'tap-to-add authenticator link present'); ok((await page.getAttribute('#otpLink', 'href')).includes('&image=https%3A%2F%2Fsavemysecrets.com%2Ftotp-logo.png'), 'otpauth link includes the logo image param'); ok(await page.locator('#qr canvas, #qr img').count() > 0, 'QR code rendered'); const secret = (await page.textContent('#totpKey')).trim(); ok(secret.length >= 16, '2FA key shown');
-ok(await page.isVisible('#skipLink') && (await page.textContent('#skipLink')).trim() === 'Skip for now (not recommended)', 'signup enrol screen offers a low-key skip link'); ok(!(await page.isVisible('#skipConfirm')), 'skip confirm hidden until asked');
+ok(await page.isVisible('#skipLink') && (await page.textContent('#skipLink')).trim() === 'Skip for now (not recommended)', 'signup enrol screen offers the skip option');
+ok(await page.evaluate(() => { const s = document.getElementById('skipLink'), p = document.querySelector('#fEnrol button[type=submit]'); return s.tagName === 'BUTTON' && s.classList.contains('ghost') && s.parentElement === p.parentElement; }), 'skip is a secondary button beside "Turn on two-factor"'); ok(!(await page.isVisible('#skipConfirm')), 'skip confirm hidden until asked');
 await page.fill('#eCode', totp(secret)); await page.click('#fEnrol button');
 await page.waitForSelector('#vRec:not(.hide)'); const codes = (await page.textContent('#vRec')).match(/[A-Z0-9]{5}-[A-Z0-9]{5}/g); ok(codes?.length === 10, '10 recovery codes shown');
 ok(await page.isDisabled('#btnRecDone'), 'cannot continue until codes confirmed stored');
@@ -44,7 +59,7 @@ await page.click('#btnSave'); await page.waitForTimeout(2500); await shot('2-sav
 // 4. Nominees and rules. Each nominee is added together with their three questions; we never hold a copy of the key
 await page.click('[data-t=noms]'); await page.fill('#nName', 'Sam Nominee'); await page.fill('#nEmail', 'sam@example.com'); await page.fill('#nRel', 'brother');
 ok((await page.textContent('#tNoms')).includes("Pick questions only your nominee could answer, not things someone could guess or look up online, like a pet's name."), 'gentle warning shown on the questions screen');
-ok(await page.evaluate(() => [...document.querySelectorAll('#tNoms input, #tNoms textarea')].filter(e => e.placeholder && e.id !== 'nPhone').map(e => e.id)).then(x => x.length === 0), 'no example placeholders on the nominee or question fields');
+ok(await page.evaluate(() => [...document.querySelectorAll('#tNoms input, #tNoms textarea')].filter(e => e.placeholder).map(e => e.id)).then(x => x.length === 0), 'no example placeholders on the nominee or question fields');
 await page.click('#btnNom'); await page.waitForTimeout(500);
 ok((await page.textContent('#nMsg')).includes('Write all three questions') && (await page.$$('#nomList .item')).length === 0, 'a nominee cannot be added without their questions');
 const fillNew = async (who, ans) => { for (let i = 0; i < 3; i++) { await page.fill('#nq' + i, `Question ${i + 1} for ${who}?`); await page.fill('#na' + i, ans[i]); } };
@@ -52,6 +67,8 @@ await fillNew('Sam Nominee', ['Marbella', 'Sea Biscuit', 'Mrs Okafor']); await p
 await page.locator('#btnNom').scrollIntoViewIfNeeded(); await page.screenshot({ path: process.env.ADDNOM_SHOT || `${OUT}/j-2c-add-nominee.png`, fullPage: true });
 await page.click('#btnNom'); await page.waitForSelector('#nomList .item', { timeout: 60000 }); ok((await page.textContent('#nomList')).includes('Sam Nominee'), 'nominee added with their questions');
 ok((await page.inputValue('#nName')) === '' && (await page.inputValue('#nq0')) === '', 'add form cleared for the next nominee');
+ok(!(await page.isVisible('#nomAdd')) && await page.isVisible('#btnAddAnother') && (await page.textContent('#nomOneNote')).includes('One nominee is enough. You can add more as backups.'), 'after saving, the add form folds away: list, "one is enough" note and "Add another nominee" button');
+await page.click('#btnAddAnother'); ok(await page.isVisible('#nomAdd') && (await page.textContent('#nomAddHead')) === 'Add another nominee' && !(await page.isVisible('#btnAddAnother')), '"Add another nominee" opens the form');
 await page.fill('#nName', 'Kim Nominee'); await page.fill('#nEmail', 'kim@example.com'); await fillNew('Kim Nominee', ['Rome', 'Bluebell', 'Mr Jones']); await page.click('#btnNom');
 await page.waitForFunction(() => document.querySelectorAll('#nomList .item').length === 2, null, { timeout: 60000 });
 ok((await page.$$('#nomList .item')).length === 2, 'second nominee added');
@@ -72,7 +89,18 @@ for (const a of answers) { if (await page.isVisible('#tryResult:not(.hide)')) br
   for (let w = 0; w < 120 && (await page.$$('#tryChat .bubble')).length < n + 2; w++) await page.waitForTimeout(500); }
 await page.waitForSelector('#tryResult:not(.hide)', { timeout: 60000 }); ok((await page.textContent('#tryResult')).includes('what happens next'), 'rehearsal ends with the rating and next steps'); await shot('2b-rehearse');
 await page.click('summary:has-text("Send us feedback")'); await page.fill('#fbText', 'Journey test feedback'); await page.click('#btnFb'); await page.waitForSelector('#fbMsg.ok'); ok(true, 'feedback sent from the app');
-await page.click('[data-t=rules]'); await page.selectOption('#rDays', '180'); await page.selectOption('#rWeeks', '8'); await page.selectOption('#rVeto', '14'); await page.click('#btnRules'); await page.waitForTimeout(1500); await shot('3-rules');
+await page.click('[data-t=rules]');
+ok((await page.textContent('#rulesOrder')).includes('Only after that do we contact your nominees') && (await page.textContent('label[for=rVeto]')).includes('last window to respond'), 'Rules explain the release order; the final check is your last window to respond');
+// A local-format mobile is caught before saving, right by the button, and nothing is half-saved
+await page.fill('#rPhone', '07700 900123'); await page.click('#btnRules');
+ok((await page.textContent('#rPhoneMsg')).includes('country code') && (await page.textContent('#rMsg')).includes('Not saved yet'), 'bad mobile on Rules: inline message, and the save is clearly not done');
+await page.fill('#rPhone', '0044 7700 900123'); await page.selectOption('#rDays', '60'); await page.selectOption('#rWeeks', '2'); await page.selectOption('#rVeto', '14'); await page.click('#btnRules');
+await page.waitForFunction(() => document.getElementById('rMsg').textContent.includes('Rules saved'), null, { timeout: 15000 });
+ok(await page.locator('#rMsg').evaluate(e => { const r = e.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight; }) && (await page.evaluate(() => me.phone)) === '+447700900123', 'Lilian\'s rules (2 months, 2 weeks, 14 days) save, with "Rules saved" in view by the button; mobile stored as +447700900123');
+ok(await page.evaluate(() => me.policy.checkin_days === 60 && me.policy.grace_weeks === 2 && me.policy.veto_days === 14), 'those values are stored');
+await page.fill('#rPhone', ''); await page.selectOption('#rDays', '180'); await page.selectOption('#rWeeks', '8'); await page.selectOption('#rVeto', '14'); await page.click('#btnRules');
+await page.waitForFunction(() => document.getElementById('rMsg').textContent.includes('Rules saved'), null, { timeout: 15000 }); await shot('3-rules');
+ok((await page.evaluate(() => me.phone)) === null, 'an empty mobile never blocks saving, and clearing it removes the number');
 const due = new Date(Date.now() + 180 * 86400000).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 ok((await page.textContent('#statusLine')).includes(due), 'next check-in moves to match new frequency (' + due + ')');
 ok((await page.textContent('#statusLine')).includes('All good') && !(await page.isVisible('#btnFine')), 'all good and check-in in the future: no "I\'m fine" button');
@@ -111,7 +139,7 @@ await fetch(B + '/api/admin/invites', { method: 'POST', headers: { authorization
 const email2 = `qa+skip${Date.now()}@example.com`;
 await page.click('#logout'); await page.waitForSelector('#vAuth:not(.hide)');
 await page.goto(B + '/app?invite=' + inv2 + '&email=' + encodeURIComponent(email2)); await page.waitForSelector('#fSignup:not(.hide)');
-await page.fill('#sName', 'Skip Tester'); await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
+await page.fill('#sName', 'Skip Tester'); await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button.accent');
 await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); await page.locator('#skipLink').scrollIntoViewIfNeeded(); await page.screenshot({ path: `${OUT}/j-6-skip-link.png` });
 await page.click('#skipLink'); await page.waitForSelector('#skipConfirm:not(.hide)');
 ok((await page.textContent('#skipConfirm')).includes('Without 2FA, anyone who learns your password can open your vault. You can turn 2FA on later from your dashboard.'), 'skip confirm explains the risk');
@@ -153,7 +181,7 @@ const link3 = B + '/app?code=' + inv3 + '&email=' + encodeURIComponent(email3);
 await page.goto(link3); await page.waitForSelector('#fSignup:not(.hide)'); ok(await page.inputValue('#sEmail') === email3, 'invite link prefills signup email');
 ok(!(await page.isVisible('#iCode')) && !(await page.isVisible('#fInvite')) && !/invite code/i.test(await page.locator('#vAuth').innerText()), 'email link lands on Create vault with no invite-code field or wording');
 await page.evaluate(() => window.scrollTo(0, 0)); await page.screenshot({ path: process.env.FRESH_SHOT || `${OUT}/j-11a-link-fresh.png` });
-await page.fill('#sName', 'Used Link Tester'); await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button');
+await page.fill('#sName', 'Used Link Tester'); await page.fill('#sPw', pw); await page.fill('#sPw2', pw); await page.check('#sAlpha'); await page.click('#fSignup button.accent');
 await page.waitForSelector('#vEnrol:not(.hide)', { timeout: 30000 }); ok(true, 'account created, left at the 2FA screen');
 await page.goto(link3); await page.waitForFunction(() => document.getElementById('flash').textContent.includes('already have an account'), null, { timeout: 15000 });
 ok(await page.isVisible('#fLogin') && !(await page.isVisible('#fSignup')) && !(await page.isVisible('#fInvite')), 'used invite link opens the Log in tab');
