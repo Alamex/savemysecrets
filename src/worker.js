@@ -82,7 +82,7 @@ const toText = html => html.replace(/<a [^>]*href="([^"]+)"[^>]*>([^<]*)<\/a>/g,
 // firstContact: the first email someone gets from us also asks them to add our address to their contacts
 async function sendEmail(env, userId, to, subject, inner, { firstContact = false } = {}) {
   const from = env.MAIL_FROM || 'hello@savemysecrets.com';
-  if (firstContact) inner += `<p style="color:#6b7280;font-size:14px">Tip: add ${esc(from)} to your contacts so our emails never end up in spam.</p>`;
+  if (firstContact) inner += `<p>Tip: add ${esc(from)} to your contacts so our emails never end up in spam.</p>`;
   const html = layout(inner), text = toText(inner) + '\n\nSave My Secrets (alpha). Questions? support@savemysecrets.com';
   try {
     if (env.CF_EMAIL_TOKEN && env.CF_ACCOUNT_ID) {
