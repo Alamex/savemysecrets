@@ -140,6 +140,9 @@ await makeLegacy(email, tok, v.K, [{ id: 'legacynom1', name: 'Nom Inee', email: 
 ok((await call('/api/me/vault', { method: 'POST', token: tok, body: { vault: v.upload.vault, wrappedOwner: v.upload.wrappedOwner } })).s === 200 && (await call('/api/me', { token: tok })).d.hasRelease === true, 'existing standard vault: saving contents keeps it working');
 ok((await addNom(tok, v.K, { name: 'No Plus', email: 'noplus@example.com', phone: '07700 900000' })).s === 400, 'phone without country code refused');
 ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { phone: '00971 50 123 4567' } })).s === 200 && (await call('/api/me', { token: tok })).d.phone === '+971501234567', 'phone tidied to +971501234567');
+await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90 } }); ok((await call('/api/me', { token: tok })).d.phone === '+971501234567', 'rules saved without a phone keep the stored mobile');
+await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, phone: '' } }); ok((await call('/api/me', { token: tok })).d.phone === null, 'rules saved with an empty mobile remove it');
+await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, phone: '+971 50 123 4567' } });
 ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, grace_weeks: 6, proof_required: 'death_certificate', veto_days: 7 } })).s === 200, 'policy saved');
 // Rehearsal: owner plays their nominee; nothing stored, nobody alerted, state unchanged
 const evBefore = (await call('/api/admin/events', { token: ADM })).d[0].id;

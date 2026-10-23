@@ -73,3 +73,13 @@ pre{white-space:pre-wrap;word-break:break-word;font-size:13px}
 .soon{font-family:Inter,system-ui,sans-serif;font-weight:400;font-size:.7em;color:var(--muted);white-space:nowrap}
 
 .logo-icon{width:30px;height:30px;vertical-align:-7px;margin-right:9px;border-radius:7px}
+
+.hint{font-size:13px;color:var(--muted);margin:-2px 0 6px;line-height:1.4}
+.fieldmsg{margin:6px 0 0}.fieldmsg:empty{display:none}
+input[aria-invalid=true]{border-color:var(--bad)}
+.pw-wrap{position:relative}.pw-wrap input{padding-right:54px}
+.eye{position:absolute;right:4px;top:50%;transform:translateY(-50%);background:transparent;color:var(--muted);padding:9px 11px;border-radius:8px;line-height:0}
+.eye svg{width:22px;height:22px}.eye[aria-pressed=false] .eye-off{display:none}
+.eye:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.enrol-actions>button{flex:1 1 200px}
+form.inline label{flex:1 1 100%;margin:0 0 -2px}

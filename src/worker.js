@@ -594,9 +594,11 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`, { firstContact: true }
       const gw = Math.max(2, Math.min(12, Number(body.grace_weeks) || 6));
       const pr = ['none', 'nominee_confirm', 'death_certificate'].includes(body.proof_required) ? body.proof_required : 'death_certificate';
       const vd = Math.max(3, Math.min(30, Number(body.veto_days) || 7));
+      // A phone sent (even empty, to remove it) replaces the stored one; leaving it out keeps it
+      const sentPhone = Object.prototype.hasOwnProperty.call(body, 'phone') ? 1 : 0;
       const ph = normPhone(body.phone); if (!ph.ok) return err(PHONE_ERR); body.phone = ph.value;
-      await env.DB.prepare('UPDATE users SET checkin_days=?, grace_weeks=?, proof_required=?, veto_days=?, phone=COALESCE(?,phone) WHERE id=?')
-        .bind(cd, gw, pr, vd, body.phone || null, u.id).run();
+      await env.DB.prepare('UPDATE users SET checkin_days=?, grace_weeks=?, proof_required=?, veto_days=?, phone=CASE WHEN ? THEN ? ELSE phone END WHERE id=?')
+        .bind(cd, gw, pr, vd, sentPhone, body.phone || null, u.id).run();
       // Saving rules is proof of life too, and the next check-in moves to match the new frequency
       if (u.next_checkin_at) await resetCheckin(env, { ...u, checkin_days: cd }, 'rules changed');
       return json({ ok: true });

@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261022a">
+<link rel="stylesheet" href="/style.css?v=20261023a">
 <script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
@@ -46,9 +46,12 @@
     <p class="small ok" id="inviteOk"></p>
     <label>Your full name</label><input id="sName" required autocomplete="name">
     <label>Email</label><input id="sEmail" type="email" required autocomplete="email">
-    <label>Mobile (optional)</label><input id="sPhone" type="tel" placeholder="+ country code and number" autocomplete="tel">
-    <label>Master password (at least 12 characters)</label><input id="sPw" type="password" minlength="12" required autocomplete="new-password">
-    <label>Confirm master password</label><input id="sPw2" type="password" minlength="12" required autocomplete="new-password">
+    <label for="sPhone">Mobile (optional)</label><p class="hint" id="sPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="sPhone" type="tel" autocomplete="tel" aria-describedby="sPhoneHint sPhoneMsg"><p id="sPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
+    <label for="sPw">Master password</label><p class="hint" id="sPwHint">At least 12 characters.</p>
+    <div class="pw-wrap"><input id="sPw" type="password" minlength="12" required autocomplete="new-password" aria-describedby="sPwHint"><button type="button" class="eye" data-for="sPw" aria-label="Show password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="eye-off" d="M4 4l16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <label for="sPw2">Confirm master password</label>
+    <div class="pw-wrap"><input id="sPw2" type="password" minlength="12" required autocomplete="new-password" aria-describedby="pwMatch"><button type="button" class="eye" data-for="sPw2" aria-label="Show confirm password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="eye-off" d="M4 4l16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+    <p id="pwMatch" class="small fieldmsg" aria-live="polite"></p>
     <label class="check"><input type="checkbox" id="sAlpha" required> I understand this is an alpha and I won't store anything mission critical yet.</label>
     <p class="small muted">We never see this password and can't reset it, so keep it somewhere safe.</p>
     <button class="accent" style="width:100%">Create my vault</button>
@@ -63,8 +66,8 @@
   <p class="small muted">On a computer? Scan this with your phone:</p>
   <div id="qr" style="background:#fff;padding:12px;display:inline-block;border-radius:10px"></div>
   <p class="small muted">If neither works, type this setup key into your authenticator app instead: <code id="totpKey"></code> <a href="#" id="copyKey">Copy</a><br>You only need it once, during setup. Your recovery codes, on the next screen, are your backup.</p>
-  <form id="fEnrol"><input id="eCode" inputmode="numeric" placeholder="6-digit code" required><p></p><button class="accent" style="width:100%">Turn on two-factor</button></form>
-  <p id="skipRow" class="small hide" style="text-align:center;margin-top:16px"><a href="#" id="skipLink" class="muted">Skip for now (not recommended)</a></p>
+  <form id="fEnrol"><input id="eCode" inputmode="numeric" placeholder="6-digit code" required><p></p>
+    <div class="row enrol-actions"><button class="accent" type="submit">Turn on two-factor</button><button type="button" class="ghost hide" id="skipLink">Skip for now (not recommended)</button></div></form>
   <div id="skipConfirm" class="card hide" style="margin-top:14px">
     <p>Without 2FA, anyone who learns your password can open your vault. You can turn 2FA on later from your dashboard.</p>
     <div class="row"><button class="ghost" id="btnSkipYes">Skip anyway</button><button class="accent" id="btnSkipNo">Set up 2FA</button></div>
@@ -128,10 +131,13 @@
       <div class="row"><button class="accent" id="btnQSave">Lock with these answers</button><button class="ghost" id="btnQCancel">Cancel</button></div>
       <p id="qMsg" class="small"></p>
     </div>
-    <details open><summary>Add a nominee</summary>
+    <p class="small muted" id="nomOneNote">One nominee is enough. You can add more as backups.</p>
+    <button class="ghost hide" id="btnAddAnother" style="width:100%">Add another nominee</button>
+    <div id="nomAdd">
+      <h3 id="nomAddHead" style="margin:18px 0 4px">Add a nominee</h3>
       <label>Full name</label><input id="nName">
       <label>Email</label><input id="nEmail" type="email">
-      <label>Mobile</label><input id="nPhone" type="tel" placeholder="+ country code and number">
+      <label for="nPhone">Mobile (optional)</label><p class="hint" id="nPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="nPhone" type="tel" aria-describedby="nPhoneHint nPhoneMsg"><p id="nPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
       <label>Postal address</label><textarea id="nAddr" style="min-height:70px"></textarea>
       <label>Relationship to you</label><input id="nRel">
       <label class="check"><input type="checkbox" id="nEarly"> Tell them now that I've named them (otherwise they hear nothing until it matters)</label>
@@ -142,16 +148,18 @@
       <p class="small muted">Capitals, spaces, accents and punctuation never matter. Add other ways they might say an answer, separated by commas.</p>
       <button id="btnNom" class="accent" style="width:100%">Add nominee and lock with their answers</button>
       <p id="nMsg" class="small"></p>
-    </details>
+    </div>
   </div>
 
   <div id="tRules" class="hide">
+    <p class="notice" id="rulesOrder">If you miss a check-in, we keep trying you for the period you choose. Only after that do we contact your nominees. Nothing is released unless one of them asks for it and passes our checks, and even then we wait out your final check period first. One tap from you stops it at any point.</p>
     <label>Check in with me every</label><select id="rDays"><option value="30">month</option><option value="60">2 months</option><option value="90">3 months</option><option value="180">6 months</option><option value="365">year</option></select>
     <label>If I don't respond, keep trying me for</label><select id="rWeeks"><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="6">6 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select>
     <label>Before release, my nominee must</label><select id="rProof"><option value="death_certificate">provide a death certificate (checked)</option><option value="nominee_confirm">pass the interview and confirm what happened</option><option value="none">pass the interview only</option></select>
-    <label>Final check before release: how long you have to respond</label><select id="rVeto"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
-    <label>Mobile (optional)</label><input id="rPhone" type="tel" placeholder="+ country code and number">
+    <label for="rVeto">Final check: your last window to respond before anything is released</label><p class="hint" id="rVetoHint">After a nominee passes our checks, we keep alerting you for this long. If you respond, nothing is released.</p><select id="rVeto" aria-describedby="rVetoHint"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
+    <label for="rPhone">Mobile (optional)</label><p class="hint" id="rPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="rPhone" type="tel" aria-describedby="rPhoneHint rPhoneMsg"><p id="rPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
     <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
+    <p id="rMsg" class="small" role="status" aria-live="polite"></p>
     <div id="tfaSettings" class="card hide" style="margin-top:20px">
       <h3>Two-factor login (2FA)</h3>
       <p class="small muted">Strongly recommended. With 2FA on, logging in needs your password and a code from your phone.</p>
@@ -192,7 +200,38 @@ let inviteCode = null, token = null, ownerKey = null, K = null, me = null, vault
 const $ = id => document.getElementById(id);
 // Phone fields start with + so people include their country code
 document.addEventListener('focusin', e => { if (e.target.type === 'tel' && !e.target.value) e.target.value = '+'; });
-document.addEventListener('focusout', e => { if (e.target.type === 'tel' && e.target.value.trim() === '+') e.target.value = ''; });
+// Check on blur, except when the blur comes from pressing a button: the button checks it itself, and a message
+// appearing mid-tap would shift the button down so the tap misses it
+let pressingBtn = false;
+document.addEventListener('pointerdown', e => { pressingBtn = !!e.target.closest('button'); }, true);
+['pointerup', 'pointercancel'].forEach(t => document.addEventListener(t, () => setTimeout(() => { pressingBtn = false; }, 0), true));
+document.addEventListener('focusout', e => { if (e.target.type === 'tel' && !pressingBtn) checkPhone(e.target); });
+// Lenient phone check, on blur and on submit only (never while typing). Spaces, dashes and brackets are ignored and a
+// leading 00 becomes +. Empty is always fine. Returns the number as + and digits (E.164), '' for empty, or null if not valid.
+function checkPhone(el) {
+  const raw = el.value.trim(), msg = $(el.id + 'Msg');
+  const d = raw.replace(/[\s().-]/g, '').replace(/^\++/, '+').replace(/^\+?00/, '+');
+  let err = '';
+  if (d && d !== '+') {
+    if (/^\+?0/.test(d)) err = 'Please add your country code: start with + and leave out the first 0, e.g. +44 7700 900123 for a UK mobile.';
+    else if (!d.startsWith('+')) err = 'Please start with + and your country code, e.g. +44 7700 900123.';
+    else if (!/^\+[1-9]\d{6,14}$/.test(d)) err = "That doesn't look like a full mobile number. Include the country code, e.g. +44 7700 900123.";
+  }
+  if (!d || d === '+') el.value = '';
+  else if (!err) el.value = raw.replace(/^\+?\s*00/, '+');
+  if (msg) msg.textContent = err; el.setAttribute('aria-invalid', err ? 'true' : 'false');
+  return err ? null : (d === '+' ? '' : d);
+}
+const phoneOrStop = id => { const v = checkPhone($(id)); if (v === null) { $(id).focus(); $(id).scrollIntoView({ block: 'center' }); } return v; };
+// Show/hide password, and a live check that the two passwords match
+document.querySelectorAll('.eye').forEach(b => b.onclick = () => {
+  const i = $(b.dataset.for), on = i.type === 'password'; i.type = on ? 'text' : 'password'; b.setAttribute('aria-pressed', String(on)); });
+function showPwMatch() {
+  const a = $('sPw').value, b = $('sPw2').value, m = $('pwMatch');
+  if (!b) { m.textContent = ''; m.className = 'small fieldmsg'; return; }
+  const same = a === b; m.textContent = same ? '\u2713 Passwords match' : '\u2717 Passwords don\'t match'; m.className = 'small fieldmsg ' + (same ? 'ok' : 'bad');
+}
+['sPw', 'sPw2'].forEach(x => $(x).addEventListener('input', showPwMatch));
 document.addEventListener('input', e => { if (e.target.type === 'tel' && /^\+\+/.test(e.target.value)) e.target.value = e.target.value.replace(/^\++/, '+'); });
 const show = v => ['vAuth','vEnrol','vRec','vSeal','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
@@ -268,7 +307,7 @@ $('btnFb').onclick = async () => {
 
 let enrolLater = false;   // true when turning 2FA on from the dashboard, after skipping it at signup
 function showEnrol(secret, otpauth, canSkip) {
-  $('skipRow').classList.toggle('hide', !canSkip); $('skipConfirm').classList.add('hide'); $('eCode').value = '';
+  $('skipLink').classList.toggle('hide', !canSkip); $('skipConfirm').classList.add('hide'); $('eCode').value = '';
   // The QR code includes the logo address so authenticator apps that support it show our padlock; a QR failure must never block sign-up
   const qrText = otpauth || `otpauth://totp/SaveMySecrets?secret=${secret}&issuer=SaveMySecrets`;
   $('qr').innerHTML = ''; try { if (window.QRCode) new QRCode($('qr'), { text: qrText, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.L }); } catch (e) { $('qr').textContent = 'Use the button or the setup key below.'; }
@@ -312,12 +351,13 @@ $('showCodeLink').onclick = e => { e.preventDefault(); $('noCodeMsg').classList.
 }
 $('fSignup').onsubmit = async e => {
   e.preventDefault(); const btn = e.submitter; flash();
-  if ($('sPw').value !== $('sPw2').value) return flash('Passwords do not match');
+  const sPhone = phoneOrStop('sPhone'); if (sPhone === null) return;
+  if ($('sPw').value !== $('sPw2').value) { showPwMatch(); return flash('Passwords do not match'); }
   busy(btn, true, 'Deriving keys...');
   try {
     const kdfSalt = SMS.b64(SMS.rand(16));
     const k = await SMS.deriveFromPassword($('sPw').value, kdfSalt); ownerKey = k.ownerKey;
-    const d = await post('/api/register', { name: $('sName').value, email: $('sEmail').value, phone: $('sPhone').value, authKey: k.authKey, kdfSalt, inviteCode });
+    const d = await post('/api/register', { name: $('sName').value, email: $('sEmail').value, phone: sPhone, authKey: k.authKey, kdfSalt, inviteCode });
     token = d.token; enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip);
   } catch (x) {
     if (x.data?.used) showUsedInvite($('sEmail').value, fromEmailLink ? LINK_USED : x.message);
@@ -412,11 +452,16 @@ function renderAll() {
   $('notSetBanner').classList.toggle('hide', !notSet.length);
   $('notSetBanner').innerHTML = notSet.length ? `<b>${notSet.length === 1 ? esc(notSet[0].name) + ' is' : notSet.length + ' nominees are'} not set up.</b> They can't open your vault until you set their three questions.${legacyNote} <a href="#" id="notSetLink" style="color:inherit;font-weight:600;text-decoration:underline">Set questions now</a>` : '';
   if (notSet.length) $('notSetLink').onclick = e => { e.preventDefault(); document.querySelector('[data-t=noms]').click(); editQ(notSet[0].id); };
+  // One nominee is enough: once there is one, the add form folds away behind "Add another nominee"
+  $('nomAdd').classList.toggle('hide', me.nominees.length > 0 && !addNomOpen);
+  $('btnAddAnother').classList.toggle('hide', !me.nominees.length || addNomOpen);
+  $('nomAddHead').textContent = me.nominees.length ? 'Add another nominee' : 'Add a nominee';
   $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks; $('rProof').value = me.policy.proof_required;
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
 window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
-let qFor = null;
+let qFor = null, addNomOpen = false;
+$('btnAddAnother').onclick = () => { addNomOpen = true; renderAll(); $('nName').focus(); };
 function qFieldsHtml(px, qs) {
   return [0, 1, 2].map(i => `<div style="margin:12px 0"><label>Question ${i + 1}</label><input id="${px}q${i}" value="${esc(qs[i] || '')}">
     <label>Answer</label><input id="${px}a${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"><label>Other ways they might say it (optional, up to 4)</label><input id="${px}x${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"></div>`).join('');
@@ -463,21 +508,32 @@ $('btnSave').onclick = async () => {
 $('btnNom').onclick = async () => {
   const m = $('nMsg'), btn = $('btnNom'); m.className = 'small'; m.textContent = '';
   if (!$('nName').value.trim() || !$('nEmail').value.trim()) { m.className = 'small bad'; m.textContent = 'Add their name and email.'; return; }
+  const nPhone = phoneOrStop('nPhone'); if (nPhone === null) return;
   let qs; try { qs = readQs('n'); } catch (x) { m.className = 'small bad'; m.textContent = x.message; return; }
   btn.disabled = true; m.textContent = 'Locking your vault with their answers. This takes a few seconds...';
   try {
     const { serverShare } = await call('/api/me/share');
     const keys = await SMS.buildNomineeKeys(K, serverShare, qs);
-    await post('/api/me/nominees', { name: $('nName').value, email: $('nEmail').value, phone: $('nPhone').value, address: $('nAddr').value, relationship: $('nRel').value, notify_early: $('nEarly').checked, keys });
+    await post('/api/me/nominees', { name: $('nName').value, email: $('nEmail').value, phone: nPhone, address: $('nAddr').value, relationship: $('nRel').value, notify_early: $('nEarly').checked, keys });
     ['nName','nEmail','nPhone','nAddr','nRel'].forEach(x => $(x).value = ''); $('nEarly').checked = false; $('nQFields').innerHTML = qFieldsHtml('n', ['', '', '']);
-    m.textContent = ''; me = await call('/api/me'); renderAll(); flash('Nominee added. Their answers can now open your vault.', true);
+    m.textContent = ''; addNomOpen = false; me = await call('/api/me'); renderAll(); flash('Nominee added. Their answers can now open your vault.', true);
+    $('nomList').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (x) { m.className = 'small bad'; m.textContent = x.message; }
   btn.disabled = false;
 };
+// The confirmation sits right under the button: the page-top message is off screen on a phone
 $('btnRules').onclick = async () => {
-  try { await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, proof_required: $('rProof').value, veto_days: $('rVeto').value, phone: $('rPhone').value });
-    me = await call('/api/me'); renderAll(); flash('Rules saved.', true); } catch (x) { flash(x.message); }
+  const m = $('rMsg'), btn = $('btnRules'); m.className = 'small'; m.textContent = '';
+  const rPhone = phoneOrStop('rPhone'); if (rPhone === null) { m.className = 'small bad'; m.textContent = 'Not saved yet: please fix the mobile number above.'; return; }
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try { await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, proof_required: $('rProof').value, veto_days: $('rVeto').value, phone: rPhone });
+    me = await call('/api/me'); renderAll();
+    const next = new Date(me.nextCheckin).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    m.className = 'small ok'; m.textContent = `\u2713 Rules saved. Your next check-in is ${next}.`; flash('Rules saved.', true);
+  } catch (x) { m.className = 'small bad'; m.textContent = 'Not saved: ' + x.message; }
+  btn.disabled = false; btn.textContent = 'Save rules';
 };
+['rDays', 'rWeeks', 'rProof', 'rVeto', 'rPhone'].forEach(x => $(x).addEventListener('change', () => { $('rMsg').textContent = ''; }));
 $('btnFine').onclick = async () => { await post('/api/me/checkin', {}); me = await call('/api/me'); renderAll(); flash('Checked in. Thank you.', true); };
 
 
