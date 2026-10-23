@@ -4,9 +4,9 @@
 //   K  = random vault key; vault JSON is AES-256-GCM encrypted with K
 //   wrappedOwner   = AES-GCM(ownerKey, K)
 //   S  = server share (held by the service, released only after verification)
-//   wrappedRelease = AES-GCM(SHA-256(S || L), K)
-// Standard mode: L is all zeros, so the service's share S alone CAN open the vault (until every nominee has questions).
-// Nominee questions mode: each nominee has three questions. For every pair of answers (any two of three),
+// New vaults never have a copy of K that S alone can open. Older 'standard' vaults kept one,
+//   wrappedRelease = AES-GCM(SHA-256(S || L), K) with L all zeros, until every nominee had questions.
+// Nominee questions (required for every nominee): each nominee has three questions. For every pair of answers (any two of three),
 // L = SHA-256(h_i || h_j) with h = PBKDF2(normalised answer, salt, 200k). A copy of K is wrapped with SHA-256(S || L)
 // for each pair (and each owner-listed alternative). The service never sees the answers, so it cannot open these copies;
 // it only stores verifiers so it can release S after the nominee proves two correct answers, with escalating waits.
@@ -39,21 +39,21 @@ function SMSFactory() {
   const encVault = async (K, obj) => seal(K, te.encode(JSON.stringify(obj)));
   const decVault = async (K, b) => JSON.parse(td.decode(await open(K, b)));
 
-  // Fresh vault: returns everything to upload (standard mode)
+  // Fresh vault: returns everything to upload. No release copy: only nominees' answers (with S) can open it.
   async function createVault(ownerKey, contents) {
-    const K = rand(32), S = rand(32), L = new Uint8Array(20);
+    const K = rand(32), S = rand(32);
     return {
       K,
       upload: {
         vault: await encVault(K, contents),
         wrappedOwner: await seal(ownerKey, K),
-        wrappedRelease: await seal(await releaseKey(S, L), K),
         serverShare: b64(S),
-        releaseMode: 'standard',
+        releaseMode: 'questions',
       },
     };
   }
   async function unlockOwner(ownerKey, wrappedOwner) { return open(ownerKey, wrappedOwner); }
+  // Older standard vaults only, until every nominee has questions
   async function unlockRelease(serverShareB64, wrappedRelease) {
     const L = new Uint8Array(20);
     return open(await releaseKey(unb64(serverShareB64), L), wrappedRelease);

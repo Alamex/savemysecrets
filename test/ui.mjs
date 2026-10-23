@@ -31,8 +31,9 @@ await page.screenshot({ path: 'shots/' + P + '3-seal.png' }); await page.click('
 await page.waitForSelector('#vDash:not(.hide)');
 const code = 'AAAA-BBBB-CCCC-DDDD-EEEE-FFFF-GGGG-HHHH';
 await page.screenshot({ path: 'shots/' + P + '5-dash.png' });
-await page.click('[data-t=noms]'); await page.fill('#nName', 'Ané'); await page.fill('#nEmail', 'nom@x.com'); await page.fill('#nRel', 'wife'); await page.click('#btnNom');
-await page.waitForSelector('#nomList .item'); await page.screenshot({ path: 'shots/' + P + '6-nominees.png' });
+await page.click('[data-t=noms]'); await page.fill('#nName', 'Ané'); await page.fill('#nEmail', 'nom@x.com'); await page.fill('#nRel', 'wife');
+for (let i = 0; i < 3; i++) { await page.fill('#nq' + i, `Question ${i + 1}?`); await page.fill('#na' + i, ['Marbella', 'Sea Biscuit', 'Mrs Okafor'][i]); }
+await page.click('#btnNom'); await page.waitForSelector('#nomList .item', { timeout: 60000 }); await page.screenshot({ path: 'shots/' + P + '6-nominees.png' });
 await page.click('[data-t=rules]'); await page.screenshot({ path: 'shots/' + P + '7-rules.png' });
 const cp = await ctx.newPage(); await cp.goto(B + '/claim'); await cp.screenshot({ path: 'shots/' + P + '9-claim.png' });
 await cp.fill('#cName', 'Ui Nominee'); await cp.fill('#cEmail', 'nom@x.com'); await cp.click('#f1 button'); await cp.waitForSelector('#s2:not(.hide)');
