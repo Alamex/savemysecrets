@@ -16,7 +16,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261025a">
+<link rel="stylesheet" href="/style.css?v=20261025b">
 <script src="/crypto.js"></script>
 </head>
 <body>
@@ -57,12 +57,6 @@
   <form id="f3" class="row"><textarea id="cMsg" style="min-height:70px" required placeholder="Your answer"></textarea><button class="accent">Send</button></form>
 </div>
 
-<div id="s4" class="hide">
-  <h2>Upload the death certificate</h2>
-  <p class="muted">A clear photo or scan of the official certificate. We check it automatically before anything is released.</p>
-  <form id="f4"><input id="cFile" type="file" accept="application/pdf,image/*" required><p></p><button class="accent" style="width:100%">Upload</button></form>
-</div>
-
 <div id="s5" class="hide">
   <h2>Thank you</h2>
   <p id="s5msg" class="muted"></p>
@@ -83,7 +77,7 @@
 const $ = id => document.getElementById(id);
 const u = new URLSearchParams(location.search).get('u');
 let claimantId = null, ctoken = sessionStorage.getItem('claimantToken'), token = sessionStorage.getItem('claimToken'), pkg = null, owner = '';
-const step = n => { $('flash').textContent = ''; ['s1','s2','sFind','s3','s4','s5','s6'].forEach(i => $(i).classList.toggle('hide', i !== n)); };
+const step = n => { $('flash').textContent = ''; ['s1','s2','sFind','s3','s5','s6'].forEach(i => $(i).classList.toggle('hide', i !== n)); };
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
 async function call(path, opts = {}, tok = token) {
   const r = await fetch(path, { ...opts, headers: { ...(opts.body && !(opts.body instanceof FormData) ? { 'content-type': 'application/json' } : {}), ...(tok ? { authorization: 'Bearer ' + tok } : {}) } });
@@ -112,21 +106,8 @@ $('f3').onsubmit = async e => {
   e.preventDefault(); const t = $('cMsg').value.trim(); if (!t) return; $('cMsg').value = ''; bubble('user', t);
   const btn = e.submitter; btn.disabled = true;
   try { const d = await call('/api/claim/message', { method: 'POST', body: JSON.stringify({ text: t }) }); bubble('assistant', d.reply);
-    if (d.done) setTimeout(() => d.status === 'awaiting_document' ? step('s4') : checkStatus(), 1200); } catch (x) { flash(x.message); }
+    if (d.done) setTimeout(() => checkStatus(), 1200); } catch (x) { flash(x.message); }
   btn.disabled = false;
-};
-async function shrink(f) {
-  if (!f || !f.type.startsWith('image/') || f.size < 900000) return f;
-  const img = await createImageBitmap(f); const s = Math.min(1, 2000 / Math.max(img.width, img.height));
-  const c = document.createElement('canvas'); c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
-  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
-  return new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
-}
-$('f4').onsubmit = async e => {
-  e.preventDefault(); const fd = new FormData(); fd.append('file', await shrink($('cFile').files[0]));
-  e.submitter.disabled = true; e.submitter.textContent = 'Checking document...';
-  try { await call('/api/claim/document', { method: 'POST', body: fd }); await checkStatus(); } catch (x) { flash(x.message); e.submitter.disabled = false; e.submitter.textContent = 'Upload'; }
 };
 async function checkStatus() {
   const d = await call('/api/claim/status'); owner = d.ownerFirstName || 'they';
@@ -141,7 +122,6 @@ async function checkStatus() {
   else if (d.status === 'vetoed') msg(`${owner} has confirmed they are well, so this request has been closed.`);
   else if (d.status === 'rejected') msg('We could not verify this request. Please reply to our email if you believe this is wrong.');
   else if (d.status === 'unavailable') msg(`We're sorry. ${owner} didn't set up questions for you, so there is no way for you to open their vault and we can't release it to you.`);
-  else if (d.status === 'awaiting_document') step('s4');
   else if (d.status === 'interview') step('s3');
   else if (['review', 'approved'].includes(d.status)) msg(`We've completed our checks on your request and we'll be in touch by email.`);
   else msg(`We'll be in touch by email when we have an update.`);
