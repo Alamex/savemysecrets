@@ -467,12 +467,15 @@ function renderAll() {
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
 window.delItem = async i => { 
+  const removed = vault.items[i];
   vault.items.splice(i, 1); 
   renderAll(); 
   try {
     await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
     flash('Secret removed.', true);
   } catch (x) {
+    vault.items.splice(i, 0, removed);
+    renderAll();
     flash(x.message);
   }
 };
@@ -521,8 +524,8 @@ $('btnAdd').onclick = async () => {
   const btn = $('btnAdd'), title = $('iTitle').value.trim(), body = $('iBody').value.trim();
   if (!title) return flash('Give it a title');
   btn.disabled = true; btn.textContent = 'Saving...';
+  vault.items.push({ title, body });
   try {
-    vault.items.push({ title, body });
     // An existing letter (from before the letter field was removed) stays inside `vault` and is saved unchanged
     await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
     $('iTitle').value = $('iBody').value = ''; 
@@ -530,6 +533,7 @@ $('btnAdd').onclick = async () => {
     renderAll(); 
     flash('Secret saved.', true);
   } catch (x) {
+    vault.items.pop();
     flash(x.message);
   }
   btn.disabled = false; btn.textContent = 'Add secret';
