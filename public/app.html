@@ -437,8 +437,18 @@ function renderAll() {
   $('tfaBanner').classList.toggle('hide', !!me.totpEnabled); $('tfaSettings').classList.toggle('hide', !!me.totpEnabled);
   $('btnFine').classList.toggle('hide', !needsFineButton);
   $('statusLine').innerHTML = `${stateText}${claimText}${recText}${statusSuffix}`;
-  $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item"><b>${esc(it.title)}</b>${it.type ? `<span class="small muted">${esc(it.type)}</span>` : ''}
-    <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div><p></p><button class="ghost small" onclick="delItem(${i})">Remove</button></div>`).join('') || '<p class="muted">No secrets yet.</p>';
+  $('items').innerHTML = (vault.items || []).map((it, i) => `<div class="item vault-secret" data-idx="${i}">
+    <button class="vault-secret-toggle" onclick="toggleSecret(${i})" aria-expanded="false" aria-controls="secret-${i}">
+      <svg class="vault-arrow" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5l3 3 3-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="vault-secret-label">Secret ${i + 1}</span>
+      <span class="vault-secret-title small muted">${esc(it.title)}</span>
+    </button>
+    <div class="vault-secret-content" id="secret-${i}" hidden>
+      <div style="margin-top:10px"><b>${esc(it.title)}</b>${it.type ? `<span class="small muted" style="margin-left:8px">${esc(it.type)}</span>` : ''}</div>
+      <div style="white-space:pre-wrap;margin-top:6px">${esc(it.body)}</div>
+      <p></p><button class="ghost small" onclick="delItem(${i})">Remove</button>
+    </div>
+  </div>`).join('') || '<p class="muted">No secrets yet.</p>';
   $('nomList').innerHTML = me.nominees.map(n => `<div class="item"${n.hasQuestions ? '' : ' style="border:2px solid var(--bad)"'} data-nom="${n.id}"><b>${esc(n.name)}</b>${n.hasQuestions ? '' : ' <span class="small" style="background:var(--bad);color:#fff;border-radius:6px;padding:1px 7px;margin-right:6px;font-weight:600">Not set up</span>'}<span class="small muted">${[n.relationship, n.email, n.phone].filter(Boolean).map(esc).join(' · ')}</span>
     <p class="small ${n.hasQuestions ? 'ok' : 'bad'}" style="margin:6px 0">${n.hasQuestions ? 'Questions set: ' + n.questions.map(esc).join(' · ') : '<b>Not set up: they can\'t open your vault.</b> Set their three questions now.'}</p>
     <div class="row"><button class="accent small" onclick="editQ('${n.id}')">${n.hasQuestions ? 'Change questions' : 'Set their questions now'}</button><button class="ghost small" onclick="delNom('${n.id}')">Remove</button></div></div>`).join('') || '<p class="muted">No nominees yet. Add at least one.</p>';
@@ -458,6 +468,15 @@ function renderAll() {
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
 window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
+window.toggleSecret = i => {
+  const item = document.querySelector(`.vault-secret[data-idx="${i}"]`);
+  if (!item) return;
+  const btn = item.querySelector('.vault-secret-toggle');
+  const content = item.querySelector('.vault-secret-content');
+  const isExpanded = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', String(!isExpanded));
+  content.hidden = isExpanded;
+};
 let qFor = null, addNomOpen = false;
 $('btnAddAnother').onclick = () => { addNomOpen = true; renderAll(); $('nName').focus(); };
 function qFieldsHtml(px, qs) {
