@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261025e">
+<link rel="stylesheet" href="/style.css?v=20261025f">
 <script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
@@ -111,12 +111,11 @@
   <div id="tVault">
     <div id="items"></div>
     <div class="notice">Alpha: please don't store anything mission critical yet.</div>
-    <details><summary>Add a secret</summary>
+    <details id="addSecretDetails"><summary>Add a secret</summary>
       <label>Title</label><input id="iTitle">
       <label>Details</label><textarea id="iBody" rows="8" style="min-height:220px;resize:vertical"></textarea><p></p>
-      <button id="btnAdd" class="ghost" style="width:100%">Add to vault</button>
-    </details><p></p>
-    <button class="accent" id="btnSave" style="width:100%">Encrypt and save vault</button>
+      <button id="btnAdd" class="accent" style="width:100%">Add secret</button>
+    </details>
   </div>
 
   <div id="tNoms" class="hide">
@@ -467,7 +466,19 @@ function renderAll() {
   $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks;
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
-window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
+window.delItem = async i => { 
+  const removed = vault.items[i];
+  vault.items.splice(i, 1); 
+  renderAll(); 
+  try {
+    await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
+    flash('Secret removed.', true);
+  } catch (x) {
+    vault.items.splice(i, 0, removed);
+    renderAll();
+    flash(x.message);
+  }
+};
 window.toggleSecret = i => {
   const item = document.querySelector(`.vault-secret[data-idx="${i}"]`);
   if (!item) return;
@@ -509,18 +520,23 @@ $('btnQSave').onclick = async () => {
   btn.disabled = false;
 };
 window.delNom = async id => { await call('/api/me/nominees/' + id, { method: 'DELETE' }); me = await call('/api/me'); renderAll(); };
-let dirty = false;
-window.addEventListener('beforeunload', e => { if (dirty) { e.preventDefault(); e.returnValue = ''; } });
-$('btnAdd').onclick = () => {
-  if (!$('iTitle').value) return flash('Give it a title');
-  // New secrets are just a title and details; older ones may also carry a type label, which is still shown
-  vault.items.push({ title: $('iTitle').value, body: $('iBody').value });
-  $('iTitle').value = $('iBody').value = ''; dirty = true; renderAll(); flash('Added. Save the vault to make it permanent.');
-};
-$('btnSave').onclick = async () => {
-  // An existing letter (from before the letter field was removed) stays inside `vault` and is saved unchanged
-  await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
-  dirty = false; flash('Vault encrypted and saved.', true);
+$('btnAdd').onclick = async () => {
+  const btn = $('btnAdd'), title = $('iTitle').value.trim(), body = $('iBody').value.trim();
+  if (!title) return flash('Give it a title');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  vault.items.push({ title, body });
+  try {
+    // An existing letter (from before the letter field was removed) stays inside `vault` and is saved unchanged
+    await post('/api/me/vault', { vault: await SMS.encVault(K, vault), wrappedOwner: await SMS.seal(ownerKey, K) });
+    $('iTitle').value = $('iBody').value = ''; 
+    $('addSecretDetails').open = false;
+    renderAll(); 
+    flash('Secret saved.', true);
+  } catch (x) {
+    vault.items.pop();
+    flash(x.message);
+  }
+  btn.disabled = false; btn.textContent = 'Add secret';
 };
 $('btnNom').onclick = async () => {
   const m = $('nMsg'), btn = $('btnNom'); m.className = 'small'; m.textContent = '';
@@ -554,7 +570,7 @@ $('btnRules').onclick = async () => {
 $('btnFine').onclick = async () => { await post('/api/me/checkin', {}); me = await call('/api/me'); renderAll(); flash('Checked in. Thank you.', true); };
 
 
-$('logout').onclick = async e => { e.preventDefault(); if (dirty && !confirm('You have unsaved changes to your vault. Log out anyway?')) return; dirty = false; try { await post('/api/logout', {}); } catch {} location.href = '/app'; };
+$('logout').onclick = async e => { e.preventDefault(); try { await post('/api/logout', {}); } catch {} location.href = '/app'; };
 </script>
 </body>
 </html>
