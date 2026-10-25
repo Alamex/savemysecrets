@@ -143,12 +143,12 @@ ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { phone: '0
 await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90 } }); ok((await call('/api/me', { token: tok })).d.phone === '+971501234567', 'rules saved without a phone keep the stored mobile');
 await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, phone: '' } }); ok((await call('/api/me', { token: tok })).d.phone === null, 'rules saved with an empty mobile remove it');
 await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, phone: '+971 50 123 4567' } });
-ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, grace_weeks: 6, proof_required: 'death_certificate', veto_days: 7 } })).s === 200, 'policy saved');
+ok((await call('/api/me/policy', { method: 'POST', token: tok, body: { checkin_days: 90, grace_weeks: 6, veto_days: 7 } })).s === 200, 'policy saved');
 // Rehearsal: owner plays their nominee; nothing stored, nobody alerted, state unchanged
 const evBefore = (await call('/api/admin/events', { token: ADM })).d[0].id;
 let rh = await call('/api/me/rehearse', { method: 'POST', token: tok, body: { messages: [] } }); ok(rh.s === 200 && rh.d.reply.includes('what has happened'), 'rehearsal opens with the real first question');
 const rmsgs = [];
-for (const t of ['I am his wife, he died last week.', 'At home in Dubai on 6 October 2026.', 'His brother and our solicitor know.', 'I have the death certificate.', 'Nothing else.', 'Yes.', 'Thank you.', 'Ok.', 'Fine.', 'Done.', 'Yes.', 'Ok.']) {
+for (const t of ['I am his wife, he died last week.', 'At home in Dubai on 6 October 2026.', 'His brother and our solicitor know.', 'Nothing else.', 'Yes.', 'Thank you.', 'Ok.', 'Fine.', 'Done.', 'Yes.', 'Ok.']) {
   rmsgs.push({ role: 'user', content: t }); rh = await call('/api/me/rehearse', { method: 'POST', token: tok, body: { messages: rmsgs } }); rmsgs.push({ role: 'assistant', content: rh.d.reply }); if (rh.d.done) break;
 }
 ok(rh.d.done && rh.d.assessment, 'rehearsal ends with an assessment');
@@ -191,7 +191,7 @@ ok((await call('/api/admin/events', { token: ADM })).d.some(e => e.kind.startsWi
 ok((await call('/api/me', { token: tok })).d.openClaim === true, 'owner dashboard shows open claim');
 let st;
 // Against the live site the interviewer is a real AI, so a role-played claimant (also AI) answers it from a fixed backstory
-const STORY = 'You are Nom Inee, wife of Test Owner for 18 years, living in Jumeirah, Dubai. Test Owner (born 3 March 1974, aged 52) died of a heart attack at home on the morning of Tuesday 6 October 2026; the ambulance took him to Mediclinic City Hospital where he was pronounced dead. His brother David Owner and your solicitor Sarah Jones know. The funeral is on 16 October 2026. He told you about Save My Secrets and mentioned it in his letter of wishes. You have the official death certificate from the Dubai Health Authority and can upload it now. Answer the interviewer directly, briefly and truthfully from this story. Invent small consistent details only if asked something not covered.';
+const STORY = 'You are Nom Inee, wife of Test Owner for 18 years, living in Jumeirah, Dubai. Test Owner (born 3 March 1974, aged 52) died of a heart attack at home on the morning of Tuesday 6 October 2026; the ambulance took him to Mediclinic City Hospital where he was pronounced dead. His brother David Owner and your solicitor Sarah Jones know. The funeral is on 16 October 2026. He told you about Save My Secrets and mentioned it in his letter of wishes. Answer the interviewer directly, briefly and truthfully from this story. Invent small consistent details only if asked something not covered.';
 async function roleplay(history, story = STORY) {
   const key = fs.existsSync('/root/.smsec/anthropic') ? fs.readFileSync('/root/.smsec/anthropic', 'utf8').trim() : process.env.ANTHROPIC_API_KEY;
   const r = await fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },

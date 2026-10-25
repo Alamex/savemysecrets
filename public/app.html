@@ -11,7 +11,7 @@
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#1f3a5f">
-<link rel="stylesheet" href="/style.css?v=20261023a">
+<link rel="stylesheet" href="/style.css?v=20261025a">
 <script src="/qrcode.min.js"></script>
 <script src="/crypto.js"></script>
 </head>
@@ -155,7 +155,6 @@
     <p class="notice" id="rulesOrder">If you miss a check-in, we keep trying you for the period you choose. Only after that do we contact your nominees. Nothing is released unless one of them asks for it and passes our checks, and even then we wait out your final check period first. One tap from you stops it at any point.</p>
     <label>Check in with me every</label><select id="rDays"><option value="30">month</option><option value="60">2 months</option><option value="90">3 months</option><option value="180">6 months</option><option value="365">year</option></select>
     <label>If I don't respond, keep trying me for</label><select id="rWeeks"><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="6">6 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select>
-    <label>Before release, my nominee must</label><select id="rProof"><option value="death_certificate">provide a death certificate (checked)</option><option value="nominee_confirm">pass the interview and confirm what happened</option><option value="none">pass the interview only</option></select>
     <label for="rVeto">Final check: your last window to respond before anything is released</label><p class="hint" id="rVetoHint">After a nominee passes our checks, we keep alerting you for this long. If you respond, nothing is released.</p><select id="rVeto" aria-describedby="rVetoHint"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
     <label for="rPhone">Mobile (optional)</label><p class="hint" id="rPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="rPhone" type="tel" aria-describedby="rPhoneHint rPhoneMsg"><p id="rPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
     <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
@@ -286,12 +285,11 @@ async function tryStep(btn) {
 }
 function showTryResult(d) {
   const a = d.assessment || {}, risk = { low: 'Low risk', medium: 'Medium risk', high: 'High risk' }[a.risk] || 'Not rated';
-  const proof = { death_certificate: 'They would upload the death certificate, which is checked automatically.', nominee_confirm: 'They would confirm what happened.', none: 'Your rules ask for nothing more, so this step is skipped.' }[d.proof] || '';
   $('tryResult').innerHTML = `<div class="card"><h3>How our checker rated this</h3><p><b>${esc(risk)}</b>${a.summary ? '<br>' + esc(a.summary) : ''}</p>
     ${(a.red_flags || []).length ? '<p class="small bad">Red flags: ' + a.red_flags.map(esc).join('; ') + '</p>' : ''}
     <h3>In a real request, what happens next</h3>
     <p class="small">1. The moment they started, you'd get an urgent email. One tap from you closes the request.<br>
-    2. ${esc(proof)}<br>3. One final check that you don't respond: ${d.vetoDays} days of alarms to you.<br>4. Only then would they answer the questions you set for them, on their own device, to open your vault.</p></div>`;
+    2. Our automated checks assess the request.<br>3. One final check that you don't respond: ${d.vetoDays} days of alarms to you.<br>4. Only then would they answer the questions you set for them, on their own device, to open your vault.</p></div>`;
   $('tryResult').classList.remove('hide');
 }
 $('btnTry').onclick = async () => { tryMsgs = []; $('tryChat').innerHTML = ''; $('tryResult').classList.add('hide'); $('tryForm').classList.remove('hide');
@@ -456,7 +454,7 @@ function renderAll() {
   $('nomAdd').classList.toggle('hide', me.nominees.length > 0 && !addNomOpen);
   $('btnAddAnother').classList.toggle('hide', !me.nominees.length || addNomOpen);
   $('nomAddHead').textContent = me.nominees.length ? 'Add another nominee' : 'Add a nominee';
-  $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks; $('rProof').value = me.policy.proof_required;
+  $('rDays').value = me.policy.checkin_days; $('rWeeks').value = me.policy.grace_weeks;
   $('rVeto').value = me.policy.veto_days; $('rPhone').value = me.phone || '';
 }
 window.delItem = i => { vault.items.splice(i, 1); dirty = true; renderAll(); flash('Removed. Save the vault to make it permanent.'); };
@@ -526,14 +524,14 @@ $('btnRules').onclick = async () => {
   const m = $('rMsg'), btn = $('btnRules'); m.className = 'small'; m.textContent = '';
   const rPhone = phoneOrStop('rPhone'); if (rPhone === null) { m.className = 'small bad'; m.textContent = 'Not saved yet: please fix the mobile number above.'; return; }
   btn.disabled = true; btn.textContent = 'Saving...';
-  try { await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, proof_required: $('rProof').value, veto_days: $('rVeto').value, phone: rPhone });
+  try { await post('/api/me/policy', { checkin_days: $('rDays').value, grace_weeks: $('rWeeks').value, veto_days: $('rVeto').value, phone: rPhone });
     me = await call('/api/me'); renderAll();
     const next = new Date(me.nextCheckin).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
     m.className = 'small ok'; m.textContent = `\u2713 Rules saved. Your next check-in is ${next}.`; flash('Rules saved.', true);
   } catch (x) { m.className = 'small bad'; m.textContent = 'Not saved: ' + x.message; }
   btn.disabled = false; btn.textContent = 'Save rules';
 };
-['rDays', 'rWeeks', 'rProof', 'rVeto', 'rPhone'].forEach(x => $(x).addEventListener('change', () => { $('rMsg').textContent = ''; }));
+['rDays', 'rWeeks', 'rVeto', 'rPhone'].forEach(x => $(x).addEventListener('change', () => { $('rMsg').textContent = ''; }));
 $('btnFine').onclick = async () => { await post('/api/me/checkin', {}); me = await call('/api/me'); renderAll(); flash('Checked in. Thank you.', true); };
 
 
