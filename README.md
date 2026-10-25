@@ -37,7 +37,7 @@ You can verify this in `public/crypto.js` (all encryption) and `public/app.html`
 1. The nominee creates an account by confirming their email address with a 6-digit code (5 wrong tries and the code is dead).
 2. They enter the owner's email address. Unless they are one of the owner's listed nominees, with that exact email address, they get the same generic "no match" reply, so the site can't be used to find out who has an account.
 3. The owner is alerted straight away by email, text and WhatsApp. One tap from them closes the request.
-4. An AI interview, then any proof the owner asked for (such as a death certificate, checked automatically), then a final check period in which we keep trying to reach the owner.
+4. An AI interview, then automated checks, then a final check period in which we keep trying to reach the owner.
 
 Code requests, logins and lookups are rate limited per email address and per IP address.
 
