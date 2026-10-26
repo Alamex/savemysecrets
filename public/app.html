@@ -88,8 +88,8 @@
   <h2>Seal your vault</h2>
   <p class="muted">Your nominees don't need anything from you. Just leave a message in your will or a letter telling them to visit savemysecrets.com if anything happens to you.</p>
   <div class="notice">Alpha: test with something non-critical. Keep your real records where they are for now.</div>
-  <label>First secret: title</label><input id="sealTitle">
-  <label>Details</label><textarea id="sealBody" rows="8" style="min-height:220px;resize:vertical" placeholder="Encrypted on this device before it's sent."></textarea>
+  <label for="sealTitle">Name this secret</label><p class="hint" id="sealTitleHint">A short label you'll see in your vault list</p><input id="sealTitle" aria-describedby="sealTitleHint">
+  <label for="sealBody">The secret itself</label><p class="hint" id="sealBodyHint">The message or information your nominees would read</p><textarea id="sealBody" rows="8" style="min-height:220px;resize:vertical" aria-describedby="sealBodyHint"></textarea>
   <p></p><button class="accent" id="btnSeal" style="width:100%">Encrypt and seal</button>
 </div>
 
@@ -112,8 +112,8 @@
     <div id="items"></div>
     <div class="notice">Alpha: please don't store anything mission critical yet.</div>
     <details id="addSecretDetails"><summary>Add a secret</summary>
-      <label>Title</label><input id="iTitle">
-      <label>Details</label><textarea id="iBody" rows="8" style="min-height:220px;resize:vertical"></textarea><p></p>
+      <label for="iTitle">Name this secret</label><p class="hint" id="iTitleHint">A short label you'll see in your vault list</p><input id="iTitle" aria-describedby="iTitleHint">
+      <label for="iBody">The secret itself</label><p class="hint" id="iBodyHint">The message or information your nominees would read</p><textarea id="iBody" rows="8" style="min-height:220px;resize:vertical" aria-describedby="iBodyHint"></textarea><p></p>
       <button id="btnAdd" class="accent" style="width:100%">Add secret</button>
     </details>
   </div>
