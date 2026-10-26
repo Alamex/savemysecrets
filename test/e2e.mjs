@@ -400,22 +400,36 @@ rr = await call('/api/register', { method: 'POST', body: { email: tieEmail2, nam
 ok(rr.s === 403 && !rr.d.used && rr.d.error === GENERIC_INV, 'register with a used code tied to someone else stays generic');
 rr = await call('/api/login', { method: 'POST', body: { email: tieEmail1, authKey: kTieRight.authKey } });
 ok(rr.s === 200 && rr.d.needsEnrol === true && rr.d.canSkip === true && !!rr.d.totpSecret, 'account abandoned at 2FA logs in and resumes enrolment, with skip available');
-// Re-approve the same person: old unused codes deactivated
+// Re-approve the same person: unused code is reused, not retired
 const reApproveEmail = 'reapprove+' + Date.now() + '@x.com';
 await call('/api/waitlist', { method: 'POST', body: { email: reApproveEmail, source: 'test-reapprove' } });
 await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: reApproveEmail } });
 const evs1 = (await call('/api/admin/events', { token: ADM })).d;
 const code1st = evs1.find(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')) ? JSON.parse(evs1.find(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail)).detail).html.match(/code=([A-Z0-9]{6})/)[1] : null;
+ok(code1st, 'first code issued');
+ic = await call('/api/invite/check', { method: 'POST', body: { code: code1st } });
+ok(ic.s === 200, 'first code valid before reuse');
 await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: reApproveEmail } });
 const evs2 = (await call('/api/admin/events', { token: ADM })).d;
-const code2nd = evs2.filter(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')).map(e => JSON.parse(e.detail).html.match(/code=([A-Z0-9]{6})/)?.[1]).filter(c => c !== code1st)[0];
-ok(code2nd && code1st !== code2nd, 're-approval issues a new code');
+const allCodes = evs2.filter(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')).map(e => JSON.parse(e.detail).html.match(/code=([A-Z0-9]{6})/)?.[1]);
+ok(allCodes.filter(c => c === code1st).length === 2, 're-approval reuses the same code (appears twice in events)');
 ic = await call('/api/invite/check', { method: 'POST', body: { code: code1st } });
-ok(ic.s === 400 && !ic.d.used && ic.d.error === GENERIC_INV, 'first code deactivated after re-approval (generic, not "used")');
-ok((await call('/api/invite/check', { method: 'POST', body: { code: code2nd } })).s === 200, 'second code still valid');
+ok(ic.s === 200, 'first code still active after re-approval (not retired)');
 const wlCheck = await call('/api/admin/waitlist', { token: ADM });
 const reApproveRow = wlCheck.d.find(r => r.email === reApproveEmail);
-ok(reApproveRow && reApproveRow.invited_at && reApproveRow.invite_code === code2nd, 'waitlist row marked as invited with latest code');
+ok(reApproveRow && reApproveRow.invited_at && reApproveRow.invite_code === code1st, 'waitlist row marked as invited with reused code');
+// But if the code is used up, a new one is created
+const kdfSaltReapp = SMS.b64(SMS.rand(16));
+const kReapp = await SMS.deriveFromPassword('password reapprove test', kdfSaltReapp);
+const regReapp = await call('/api/register', { method: 'POST', body: { email: reApproveEmail, name: 'Reapprove Test', authKey: kReapp.authKey, kdfSalt: kdfSaltReapp, inviteCode: code1st } });
+ok(regReapp.s === 200, 'registration with reused code succeeds');
+ok((await call('/api/invite/check', { method: 'POST', body: { code: code1st } })).s === 400, 'reused code now used up');
+await call('/api/admin/waitlist/invite', { method: 'POST', token: ADM, body: { email: reApproveEmail } });
+const evs3 = (await call('/api/admin/events', { token: ADM })).d;
+const code2nd = evs3.filter(e => e.kind.startsWith('email') && e.detail.includes(reApproveEmail) && e.detail.includes('approved')).map(e => JSON.parse(e.detail).html.match(/code=([A-Z0-9]{6})/)?.[1]).filter(c => c !== code1st)[0];
+ok(code2nd && code1st !== code2nd, 're-approval after use creates a NEW code (old one was used up)');
+ic = await call('/api/invite/check', { method: 'POST', body: { code: code2nd } });
+ok(ic.s === 200, 'new code valid after old one was used up');
 
 // Unapproved claim does NOT release even after veto window and cron
 const emailUnapp = `unapp+${Date.now()}@example.com`;
