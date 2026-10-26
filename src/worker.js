@@ -866,24 +866,32 @@ ${button(`${baseUrl(req, env)}/app`, 'Go to my vault')}`, { firstContact: true }
       const emails = (Array.isArray(body.emails) ? body.emails : [body.email]).map(e => String(e || '').trim().toLowerCase()).filter(Boolean).slice(0, 200);
       let sent = 0, failed = 0;
       for (const e of emails) {
-        // 1. A new single-use code tied to this email. If it can't be stored, stop before anything is sent.
-        const code = [...crypto.getRandomValues(new Uint8Array(6))].map(b => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 32]).join('');
-        try {
-          await env.DB.prepare('INSERT INTO invites (code, label, max_uses, uses, active, approved_email, expires_at, created_at) VALUES (?,?,1,0,1,?,?,?)')
-            .bind(code, `Auto: ${e}`, e, null, now()).run();
-        } catch { return err(`Could not create an invite code for ${e}. ${sent} sent before this.`, 500); }
-        // 2. Send the email
+        // 1. Check for an existing reusable code for this email before minting a new one
+        const existing = await env.DB.prepare('SELECT code FROM invites WHERE approved_email=? AND uses<max_uses AND active=1 AND (expires_at IS NULL OR expires_at>?)').bind(e, now()).first();
+        const code = existing ? existing.code : [...crypto.getRandomValues(new Uint8Array(6))].map(b => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[b % 32]).join('');
+        
+        // 2. If no existing code was found, create a new one
+        if (!existing) {
+          try {
+            await env.DB.prepare('INSERT INTO invites (code, label, max_uses, uses, active, approved_email, expires_at, created_at) VALUES (?,?,1,0,1,?,?,?)')
+              .bind(code, `Auto: ${e}`, e, null, now()).run();
+          } catch { return err(`Could not create an invite code for ${e}. ${sent} sent before this.`, 500); }
+        }
+        
+        // 3. Send the email (whether reusing or new)
         const link = `${baseUrl(req, env)}/app?code=${encodeURIComponent(code)}&email=${encodeURIComponent(e)}`;
         const ok = await sendEmail(env, null, e, 'You\'re approved for Save My Secrets', 
           `<p>Hi,</p><p>You asked for early access to Save My Secrets, an encrypted vault that passes your important information to the people you choose. You're approved for the alpha. Click the button below to create your vault.</p>
 ${button(link, 'Create your vault')}<p style="color:#6b7280;font-size:14px">This link is just for you and works once.</p><p style="color:#6b7280;font-size:14px">Didn't ask for this? Just ignore this email.</p><p>Neil<br>Save My Secrets</p>`, { firstContact: true });
         if (!ok) {
-          // 3. Send failed: switch off the new code only; any earlier codes keep working
-          await env.DB.prepare('UPDATE invites SET active=0 WHERE code=?').bind(code).run();
+          // 4. Send failed: switch off the code only if it was newly created (don't deactivate a reused code on failure)
+          if (!existing) await env.DB.prepare('UPDATE invites SET active=0 WHERE code=?').bind(code).run();
           failed++; continue;
         }
-        // 4. Sent: retire this person's earlier unused codes, then mark the waitlist row invited
-        await env.DB.prepare('UPDATE invites SET active=0 WHERE approved_email=? AND uses=0 AND active=1 AND code<>?').bind(e, code).run();
+        // 5. Sent: retire OTHER unused codes only when we created a NEW code (reuse doesn't retire anything)
+        if (!existing) {
+          await env.DB.prepare('UPDATE invites SET active=0 WHERE approved_email=? AND uses=0 AND active=1 AND code<>?').bind(e, code).run();
+        }
         await env.DB.prepare('UPDATE signups SET invited_at=?, invite_code=? WHERE email=?').bind(now(), code, e).run();
         sent++;
       }
