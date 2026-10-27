@@ -127,7 +127,7 @@ function normPhone(v) {
   const d = raw.replace(/[\s().-]/g, '').replace(/^\++/, '+').replace(/^\+?00/, '+');
   return /^\+[1-9]\d{6,14}$/.test(d) ? { ok: true, value: d } : { ok: false };
 }
-const PHONE_ERR = 'Please enter the mobile number with its country code, starting with + (for example +971 or +44).';
+const PHONE_ERR = 'Please enter the mobile number with its country code, starting with + (for example +1 or +44).';
 
 // ---------- at-rest protection ----------
 // The server share S and the answer verifiers are protected with a key held only as a Worker secret, so a copy of

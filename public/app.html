@@ -38,7 +38,7 @@
     </div>
     <label>Your full name</label><input id="sName" required autocomplete="name">
     <label>Email</label><input id="sEmail" type="email" required autocomplete="email">
-    <label for="sPhone">Mobile (optional)</label><p class="hint" id="sPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="sPhone" type="tel" autocomplete="tel" aria-describedby="sPhoneHint sPhoneMsg"><p id="sPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
+    <label for="sPhone">Mobile (optional)</label><p class="hint" id="sPhoneHint">Include country code, e.g. +1 555 010 1234</p><input id="sPhone" type="tel" autocomplete="tel" aria-describedby="sPhoneHint sPhoneMsg"><p id="sPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
     <label for="sPw">Master password</label><p class="hint" id="sPwHint">At least 12 characters.</p>
     <div class="pw-wrap"><input id="sPw" type="password" minlength="12" required autocomplete="new-password" aria-describedby="sPwHint"><button type="button" class="eye" data-for="sPw" aria-label="Show password" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path class="eye-off" d="M4 4l16 16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
     <label for="sPw2">Confirm master password</label>
@@ -140,7 +140,7 @@
       <h3 id="nomAddHead" style="margin:18px 0 4px">Add a nominee</h3>
       <label>Full name</label><input id="nName">
       <label>Email</label><input id="nEmail" type="email">
-      <label for="nPhone">Mobile (optional)</label><p class="hint" id="nPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="nPhone" type="tel" aria-describedby="nPhoneHint nPhoneMsg"><p id="nPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
+      <label for="nPhone">Mobile (optional)</label><p class="hint" id="nPhoneHint">Include country code, e.g. +1 555 010 1234</p><input id="nPhone" type="tel" aria-describedby="nPhoneHint nPhoneMsg"><p id="nPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
       <label>Postal address</label><textarea id="nAddr" style="min-height:70px"></textarea>
       <label>Relationship to you</label><input id="nRel">
       <label class="check"><input type="checkbox" id="nEarly"> Tell them now that I've named them (otherwise they hear nothing until it matters)</label>
@@ -159,7 +159,7 @@
     <label>Check in with me every</label><select id="rDays"><option value="30">month</option><option value="60">2 months</option><option value="90">3 months</option><option value="180">6 months</option><option value="365">year</option></select>
     <label>If I don't respond, keep trying me for</label><select id="rWeeks"><option value="2">2 weeks</option><option value="4">4 weeks</option><option value="6">6 weeks</option><option value="8">8 weeks</option><option value="12">12 weeks</option></select>
     <label for="rVeto">Final check: your last window to respond before anything is released</label><p class="hint" id="rVetoHint">After a nominee passes our checks, we keep alerting you for this long. If you respond, nothing is released.</p><select id="rVeto" aria-describedby="rVetoHint"><option value="3">3 days</option><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select>
-    <label for="rPhone">Mobile (optional)</label><p class="hint" id="rPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="rPhone" type="tel" aria-describedby="rPhoneHint rPhoneMsg"><p id="rPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
+    <label for="rPhone">Mobile (optional)</label><p class="hint" id="rPhoneHint">Include country code, e.g. +1 555 010 1234</p><input id="rPhone" type="tel" aria-describedby="rPhoneHint rPhoneMsg"><p id="rPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
     <p></p><button class="accent" id="btnRules" style="width:100%">Save rules</button>
     <p id="rMsg" class="small" role="status" aria-live="polite"></p>
     <div id="tfaSettings" class="card hide" style="margin-top:20px">
@@ -215,9 +215,9 @@ function checkPhone(el) {
   const d = raw.replace(/[\s().-]/g, '').replace(/^\++/, '+').replace(/^\+?00/, '+');
   let err = '';
   if (d && d !== '+') {
-    if (/^\+?0/.test(d)) err = 'Please add your country code: start with + and leave out the first 0, e.g. +44 7700 900123 for a UK mobile.';
-    else if (!d.startsWith('+')) err = 'Please start with + and your country code, e.g. +44 7700 900123.';
-    else if (!/^\+[1-9]\d{6,14}$/.test(d)) err = "That doesn't look like a full mobile number. Include the country code, e.g. +44 7700 900123.";
+    if (/^\+?0/.test(d)) err = 'Please add your country code: start with + and leave out the first 0, e.g. +1 555 010 1234.';
+    else if (!d.startsWith('+')) err = 'Please start with + and your country code, e.g. +1 555 010 1234.';
+    else if (!/^\+[1-9]\d{6,14}$/.test(d)) err = "That doesn't look like a full mobile number. Include the country code, e.g. +1 555 010 1234.";
   }
   if (!d || d === '+') el.value = '';
   else if (!err) el.value = raw.replace(/^\+?\s*00/, '+');
