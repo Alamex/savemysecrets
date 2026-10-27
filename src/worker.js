@@ -410,21 +410,74 @@ async function api(req, env) {
     const exists = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(email.toLowerCase()).first();
     if (exists) return err('An account with that email already exists');
     const code = normCode(body.inviteCode);
-    // Check the code exists and is valid
-    const invite = await env.DB.prepare('SELECT approved_email FROM invites WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)').bind(code, now()).first();
-    if (!invite) return (await inviteUsed(env, code, email)) ? json({ error: INVITE_USED, used: true }, 403) : err(INVITE_BAD, 403);
-    // For personal codes (with approved_email), verify the email matches
-    if (invite.approved_email && invite.approved_email.toLowerCase() !== email.toLowerCase()) return err('That invite code isn\'t valid or has been used up.', 403);
-    // Atomic: only succeeds if the code is still valid
-    const used = await env.DB.prepare(`UPDATE invites SET uses=uses+1 WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)`).bind(code, now()).run();
-    if (!used.meta.changes) return (await inviteUsed(env, code, email)) ? json({ error: INVITE_USED, used: true }, 403) : err(INVITE_BAD, 403);
+    // Invite code is now optional: if provided, validate it; if not, allow signup anyway
+    let invite = null, inviteIsValid = false;
+    if (code) {
+      // Check the code exists and is valid
+      invite = await env.DB.prepare('SELECT approved_email FROM invites WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)').bind(code, now()).first();
+      if (!invite) return (await inviteUsed(env, code, email)) ? json({ error: INVITE_USED, used: true }, 403) : err(INVITE_BAD, 403);
+      // For personal codes (with approved_email), verify the email matches
+      if (invite.approved_email && invite.approved_email.toLowerCase() !== email.toLowerCase()) return err('That invite code isn\'t valid or has been used up.', 403);
+      // Atomic: only succeeds if the code is still valid
+      const used = await env.DB.prepare(`UPDATE invites SET uses=uses+1 WHERE code=? AND active=1 AND uses<max_uses AND (expires_at IS NULL OR expires_at>?)`).bind(code, now()).run();
+      if (!used.meta.changes) return (await inviteUsed(env, code, email)) ? json({ error: INVITE_USED, used: true }, 403) : err(INVITE_BAD, 403);
+      inviteIsValid = true;
+    }
     const id = rid(12), authSalt = b64(crypto.getRandomValues(new Uint8Array(16)));
     const secret = b32encode(crypto.getRandomValues(new Uint8Array(20)));
-    await env.DB.prepare(`INSERT INTO users (id,email,name,phone,auth_salt,auth_hash,kdf_salt,totp_secret,invite_code,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)`)
-      .bind(id, email.toLowerCase(), name, phone || null, authSalt, await pbkdf2(authKey, authSalt), kdfSalt, secret, code, now()).run();
+    // Email verification: if no valid invite code, require email verification
+    const needsVerify = !inviteIsValid;
+    const verifyToken = needsVerify ? rid(32) : null;
+    const verifyExpires = needsVerify ? now() + 24 * HOUR : null;
+    await env.DB.prepare(`INSERT INTO users (id,email,name,phone,auth_salt,auth_hash,kdf_salt,totp_secret,invite_code,email_verified,email_verify_token,email_verify_token_expires,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .bind(id, email.toLowerCase(), name, phone || null, authSalt, await pbkdf2(authKey, authSalt), kdfSalt, secret, code || null, inviteIsValid ? 1 : 0, verifyToken, verifyExpires, now()).run();
+    
+    if (needsVerify) {
+      // Send verification email with a clickable link
+      const link = `${baseUrl(req, env)}/app?verify=${verifyToken}`;
+      await sendEmail(env, id, email.toLowerCase(), 'Verify your email to activate your Save My Secrets vault',
+        `<p>Hi ${esc(name)},</p><p>Thanks for creating your Save My Secrets vault. Click the button below to verify your email and activate your account.</p>${button(link, 'Verify my email')}<p style="color:#6b7280;font-size:14px">This link expires in 24 hours. If you didn't create an account, you can ignore this email.</p>`, { firstContact: true });
+      await logEvent(env, id, 'registration', 'email verification sent');
+      return json({ needsVerify: true, email: email.toLowerCase() });
+    }
+    // Valid invite code: skip verification, proceed as before
     const token = await makeSession(env, id, 'enrol', 1);
     const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
     return json({ token, totpSecret: secret, otpauth, canSkip: true });
+  }
+
+  // Verify email with token from link
+  if (p === '/api/verify-email' && m === 'POST') {
+    const token = String(body.token || '').trim();
+    if (!token) return err('Missing verification token');
+    if (!(await allow(env, 'verify:' + ip(req), 20, HOUR))) return slowDown();
+    const u = await env.DB.prepare('SELECT * FROM users WHERE email_verify_token=? AND email_verify_token_expires>? AND email_verified=0').bind(token, now()).first();
+    if (!u) return err('This verification link has expired or already been used. Please request a new one.', 400);
+    // Mark as verified and clear the token
+    await env.DB.prepare('UPDATE users SET email_verified=1, email_verify_token=NULL, email_verify_token_expires=NULL WHERE id=?').bind(u.id).run();
+    await logEvent(env, u.id, 'email_verified', '');
+    // Give them a session to continue with 2FA enrol
+    const sessionToken = await makeSession(env, u.id, 'enrol', 1);
+    const otpauth = `otpauth://totp/${encodeURIComponent(BRAND)}:${encodeURIComponent(u.email)}?secret=${u.totp_secret}&issuer=${encodeURIComponent(BRAND)}&image=${encodeURIComponent('https://savemysecrets.com/totp-logo.png')}`;
+    return json({ token: sessionToken, totpSecret: u.totp_secret, otpauth, canSkip: true, kdfSalt: u.kdf_salt });
+  }
+
+  // Resend verification email
+  if (p === '/api/resend-verification' && m === 'POST') {
+    const email = String(body.email || '').trim().toLowerCase();
+    if (!email) return err('Email address required');
+    if (!(await allow(env, 'resend:' + email, 3, HOUR)) || !(await allow(env, 'resend:' + ip(req), 10, HOUR))) return slowDown();
+    const u = await env.DB.prepare('SELECT * FROM users WHERE email=? AND email_verified=0').bind(email).first();
+    if (!u) return json({ ok: true }); // Don't reveal whether the email exists
+    // Generate a new token
+    const verifyToken = rid(32);
+    const verifyExpires = now() + 24 * HOUR;
+    await env.DB.prepare('UPDATE users SET email_verify_token=?, email_verify_token_expires=? WHERE id=?').bind(verifyToken, verifyExpires, u.id).run();
+    const link = `${baseUrl(req, env)}/app?verify=${verifyToken}`;
+    await sendEmail(env, u.id, email, 'Verify your email to activate your Save My Secrets vault',
+      `<p>Hi ${esc(u.name)},</p><p>Here's your verification link. Click the button below to verify your email and activate your account.</p>${button(link, 'Verify my email')}<p style="color:#6b7280;font-size:14px">This link expires in 24 hours. If you didn't request this, you can ignore this email.</p>`, { firstContact: true });
+    await logEvent(env, u.id, 'verification_resent', '');
+    return json({ ok: true });
   }
 
   if (p === '/api/2fa/enable' && m === 'POST') {
@@ -468,6 +521,8 @@ async function api(req, env) {
     if (!(await allow(env, 'login:' + em, 10, HOUR)) || !(await allow(env, 'loginip:' + ip(req), 30, HOUR))) return slowDown();
     const u = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(em).first();
     if (!u || !safeEq(await pbkdf2(body.authKey || '', u.auth_salt), u.auth_hash)) return err('Email or password incorrect', 401);
+    // Check email verification
+    if (!u.email_verified) return json({ error: 'Please verify your email address before logging in. Check your inbox for the verification link.', needsVerify: true, email: u.email }, 403);
     // Chose to skip 2FA: the password alone gives a full session (logging in still counts as proof of life)
     if (!u.totp_enabled && u.totp_skipped_at) {
       await resetCheckin(env, { ...u, checkin_days: u.checkin_days }, 'login');
