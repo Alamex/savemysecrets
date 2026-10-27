@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS users (
   recovery_hashes TEXT,             -- SHA-256 of one-off recovery codes
   link_used_issue INTEGER DEFAULT 0, -- check-in links issued at or before this are spent
   prev_state TEXT, prev_next_checkin INTEGER, forced_overdue INTEGER DEFAULT 0,
+  -- email verification (for open signup without invite)
+  email_verified INTEGER DEFAULT 0,
+  email_verify_token TEXT,
+  email_verify_token_expires INTEGER,
   -- vault (all ciphertext; server cannot read)
   vault_ct TEXT,                    -- AES-GCM(K_vault, vault JSON)
   wrapped_owner TEXT,               -- AES-GCM(K_owner(password), K_vault)

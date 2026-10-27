@@ -36,6 +36,14 @@ async function claimant(name, mail) {
   const v = await call('/api/claimant/verify', { method: 'POST', body: { claimantId: s1.d.claimantId, code: await otpFor(mail) } });
   return v.d.token;
 }
+// Helper to extract verification token from email events
+const verifyTokenFor = async to => {
+  const e = (await call('/api/admin/events', { token: ADM })).d.find(e => e.kind.startsWith('email') && e.detail.includes('Verify your email') && e.detail.includes(to));
+  if (!e) return null;
+  const match = JSON.parse(e.detail).html.match(/verify=([a-f0-9]{64})/);
+  return match ? match[1] : null;
+};
+
 const email = `neil+${Date.now()}@example.com`, pw = 'correct horse battery staple';
 // Every nominee is added together with their three questions (built in the browser from the vault key and our share)
 const QS = [{ q: 'First street?', answer: 'Elm Road' }, { q: 'Old dog?', answer: 'Rufus' }, { q: 'Wedding town?', answer: 'Hove' }];
@@ -100,10 +108,55 @@ await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: 'ON
 ok((await call('/api/invite/check', { method: 'POST', body: { code: 'nope' } })).s === 400, 'bad invite rejected');
 ok((await call('/api/invite/check', { method: 'POST', body: { code: 'test conf' } })).s === 200, 'manual invite check normalises spaces/case');
 const kdfSalt = SMS.b64(SMS.rand(16)); const k = await SMS.deriveFromPassword(pw, kdfSalt);
-ok((await call('/api/register', { method: 'POST', body: { email: 'noinv' + Date.now() + '@x.com', name: 'X', authKey: k.authKey, kdfSalt } })).s === 403, 'register without invite refused');
+
+// Open signup with email verification (no invite code required)
+const openEmail = 'open' + Date.now() + '@example.com';
+const openKdfSalt = SMS.b64(SMS.rand(16));
+const openK = await SMS.deriveFromPassword('open signup password 123', openKdfSalt);
+const openReg = await call('/api/register', { method: 'POST', body: { email: openEmail, name: 'Open Signup Test', authKey: openK.authKey, kdfSalt: openKdfSalt } });
+ok(openReg.s === 200 && openReg.d.needsVerify === true && openReg.d.email === openEmail, 'open signup without invite code requires email verification');
+ok(!openReg.d.token, 'open signup does not return session token before verification');
+const verifyEvents = (await call('/api/admin/events', { token: ADM })).d.filter(e => e.kind.startsWith('email') && e.detail.includes(openEmail) && e.detail.includes('Verify your email'));
+ok(verifyEvents.length === 1, 'verification email sent for open signup');
+ok(JSON.parse(verifyEvents[0].detail).html.includes(TIP), 'verification email carries contacts tip');
+ok((await call('/api/login', { method: 'POST', body: { email: openEmail, authKey: openK.authKey, code: '' } })).s === 403, 'login blocked before email verification');
+const verifyToken = await verifyTokenFor(openEmail);
+ok(verifyToken && verifyToken.length === 64, 'verification token found in email');
+const verifyRes = await call('/api/verify-email', { method: 'POST', body: { token: verifyToken } });
+ok(verifyRes.s === 200 && verifyRes.d.token && verifyRes.d.totpSecret, 'email verification succeeds and returns enrol session');
+ok((await call('/api/verify-email', { method: 'POST', body: { token: verifyToken } })).s === 400, 'verification token single-use');
+const openTotpSecret = verifyRes.d.totpSecret;
+const openEnrolToken = verifyRes.d.token;
+const openEnrol = await call('/api/2fa/enable', { method: 'POST', token: openEnrolToken, body: { code: totp(openTotpSecret) } });
+ok(openEnrol.s === 200 && openEnrol.d.token, '2FA enrol works after email verification');
+const openFullToken = openEnrol.d.token;
+ok((await call('/api/me', { token: openFullToken })).s === 200, 'verified open signup account can access vault');
+
+// Resend verification email
+const resendEmail = 'resend' + Date.now() + '@example.com';
+const resendKdfSalt = SMS.b64(SMS.rand(16));
+const resendK = await SMS.deriveFromPassword('resend test password', resendKdfSalt);
+await call('/api/register', { method: 'POST', body: { email: resendEmail, name: 'Resend Test', authKey: resendK.authKey, kdfSalt: resendKdfSalt } });
+ok((await call('/api/resend-verification', { method: 'POST', body: { email: resendEmail } })).s === 200, 'resend verification email');
+const resendEvents = (await call('/api/admin/events', { token: ADM })).d.filter(e => e.kind === 'verification_resent' && e.user_id);
+ok(resendEvents.length >= 1, 'resend event logged');
+const resendToken = await verifyTokenFor(resendEmail);
+ok(resendToken && resendToken !== verifyToken, 'resend creates new token');
+
+// Invite code bypasses email verification
+const inviteBypassEmail = 'bypass' + Date.now() + '@example.com';
+const bypassCode = 'BYPASS' + Date.now();
+await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: bypassCode, max_uses: 1 } });
+const bypassKdfSalt = SMS.b64(SMS.rand(16));
+const bypassK = await SMS.deriveFromPassword('bypass password', bypassKdfSalt);
+const bypassReg = await call('/api/register', { method: 'POST', body: { email: inviteBypassEmail, name: 'Bypass Test', authKey: bypassK.authKey, kdfSalt: bypassKdfSalt, inviteCode: bypassCode } });
+ok(bypassReg.s === 200 && bypassReg.d.token && !bypassReg.d.needsVerify, 'valid invite code bypasses email verification');
+ok((await call('/api/2fa/enable', { method: 'POST', token: bypassReg.d.token, body: { code: totp(bypassReg.d.totpSecret) } })).s === 200, 'invite bypass proceeds directly to 2FA');
 const one = 'ONE' + Date.now(); await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: one, max_uses: 1 } });
 ok((await call('/api/register', { method: 'POST', body: { email: 'a' + Date.now() + '@x.com', name: 'A', authKey: k.authKey, kdfSalt, inviteCode: one } })).s === 200, 'manual single-use invite works once');
 ok((await call('/api/register', { method: 'POST', body: { email: 'b' + Date.now() + '@x.com', name: 'B', authKey: k.authKey, kdfSalt, inviteCode: one } })).s === 403, 'manual single-use invite refused second time');
+// Main test owner uses invite code for faster test flow (no email verification wait)
+await call('/api/admin/invites', { method: 'POST', token: ADM, body: { code: 'TESTCONF', label: 'main test', max_uses: 1000 } });
 let r = await call('/api/register', { method: 'POST', body: { email, name: 'Test Owner', phone: '+971500000000', authKey: k.authKey, kdfSalt, inviteCode: 'TESTCONF' } });
 ok(r.s === 200 && r.d.totpSecret, 'register');
 const secret = r.d.totpSecret;

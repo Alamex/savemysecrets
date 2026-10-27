@@ -32,18 +32,13 @@
     <p class="small"><a href="#" id="toggleRec">Lost your phone? Use a recovery code</a></p>
     <button class="accent" style="width:100%">Unlock</button>
   </form>
-  <form id="fInvite" class="hide">
-    <div id="noCodeMsg">
-      <p class="muted">Save My Secrets is open to people we approve during the alpha. <a href="/#notify">Request access</a> and we'll email you when you're in.</p>
-      <p class="small"><a href="#" id="showCodeLink">Have an invite code?</a></p>
-    </div>
-    <div id="codeEntry" class="hide">
-      <label>Invite code</label><input id="iCode" required autocomplete="off" autocapitalize="characters">
-      <p></p><button class="accent" style="width:100%">Continue</button>
-    </div>
-  </form>
   <form id="fSignup" class="hide">
-    <p class="small ok" id="inviteOk"></p>
+    <div id="inviteCodeSection">
+      <p class="small"><a href="#" id="showCodeLink">Have an invite code?</a></p>
+      <div id="codeEntry" class="hide">
+        <label>Invite code (optional)</label><input id="iCode" autocomplete="off" autocapitalize="characters">
+      </div>
+    </div>
     <label>Your full name</label><input id="sName" required autocomplete="name">
     <label>Email</label><input id="sEmail" type="email" required autocomplete="email">
     <label for="sPhone">Mobile (optional)</label><p class="hint" id="sPhoneHint">Include country code, e.g. +44 7700 900123</p><input id="sPhone" type="tel" autocomplete="tel" aria-describedby="sPhoneHint sPhoneMsg"><p id="sPhoneMsg" class="small bad fieldmsg" aria-live="polite"></p>
@@ -56,6 +51,18 @@
     <p class="small muted">We never see this password and can't reset it, so keep it somewhere safe.</p>
     <button class="accent" style="width:100%">Create my vault</button>
   </form>
+</div>
+
+<!-- EMAIL VERIFICATION -->
+<div id="vVerify" class="hide">
+  <h2>Check your email</h2>
+  <p class="muted">We've sent a verification link to <strong id="verifyEmail"></strong>. Click the link in the email to activate your account.</p>
+  <p class="small muted">The link expires in 24 hours. If you don't see the email, check your spam folder.</p>
+  <div class="card" style="margin-top:20px">
+    <p class="small">Didn't receive the email?</p>
+    <button id="btnResend" class="ghost" style="width:100%">Resend verification email</button>
+    <p id="resendMsg" class="small" aria-live="polite"></p>
+  </div>
 </div>
 
 <!-- 2FA ENROL -->
@@ -194,7 +201,7 @@
 
 <footer><div class="narrow"><a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/pricing">Pricing</a> · <a href="mailto:support@savemysecrets.com">support@savemysecrets.com</a></div></footer>
 <script>
-let inviteCode = null, token = null, ownerKey = null, K = null, me = null, vault = { items: [] };
+let token = null, ownerKey = null, K = null, me = null, vault = { items: [] };
 const $ = id => document.getElementById(id);
 // Phone fields start with + so people include their country code
 document.addEventListener('focusin', e => { if (e.target.type === 'tel' && !e.target.value) e.target.value = '+'; });
@@ -231,19 +238,9 @@ function showPwMatch() {
 }
 ['sPw', 'sPw2'].forEach(x => $(x).addEventListener('input', showPwMatch));
 document.addEventListener('input', e => { if (e.target.type === 'tel' && /^\+\+/.test(e.target.value)) e.target.value = e.target.value.replace(/^\++/, '+'); });
-const show = v => ['vAuth','vEnrol','vRec','vSeal','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
+const show = v => ['vAuth','vVerify','vEnrol','vRec','vSeal','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
-// The approval email's link is the invite: people arriving from it never see an invite code.
-const LINK_USED = 'You already have an account. Log in to carry on.';
-const LINK_BAD = 'This link has expired or is no longer valid. Request access and we\'ll email you a new one.';
-let fromEmailLink = false;
-// A code that already created an account (e.g. reopening the email link after leaving at the 2FA step): go to Log in
-function showUsedInvite(email, msg) {
-  inviteCode = null; document.querySelector('#vAuth .tabs [data-t=login]').click();
-  if (email) $('lEmail').value = email;
-  $('flash').textContent = msg || LINK_USED; $('flash').className = 'notice';
-  (email ? $('lPw') : $('lEmail')).focus();
-}
+$('showCodeLink').onclick = e => { e.preventDefault(); $('codeEntry').classList.remove('hide'); $('showCodeLink').style.display = 'none'; };
 async function call(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const d = await r.json().catch(() => ({}));
@@ -257,7 +254,7 @@ if (new URLSearchParams(location.search).get('checkedin')) flash('Thanks, you\'r
 document.querySelectorAll('#vAuth .tabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#vAuth .tabs button').forEach(x => x.classList.toggle('on', x === b));
   $('fLogin').classList.toggle('hide', b.dataset.t !== 'login');
-  $('fInvite').classList.toggle('hide', b.dataset.t !== 'signup' || !!inviteCode); $('fSignup').classList.toggle('hide', b.dataset.t !== 'signup' || !inviteCode);
+  $('fSignup').classList.toggle('hide', b.dataset.t !== 'signup');
 });
 document.querySelectorAll('#dashTabs button').forEach(b => b.onclick = () => {
   document.querySelectorAll('#dashTabs button').forEach(x => x.classList.toggle('on', x === b));
@@ -296,6 +293,18 @@ $('btnTry').onclick = async () => { tryMsgs = []; $('tryChat').innerHTML = ''; $
 $('tryForm').onsubmit = async e => { e.preventDefault(); const t = $('tryMsg').value.trim(); if (!t) return; $('tryMsg').value = '';
   tryMsgs.push({ role: 'user', content: t }); tryBubble('user', t); await tryStep(e.submitter); };
 $('btnTryAgain').onclick = () => { $('tryRun').classList.add('hide'); tryMsgs = []; setupTry(); };
+$('btnResend').onclick = async () => {
+  const btn = $('btnResend'), m = $('resendMsg');
+  btn.disabled = true; m.textContent = 'Sending...'; m.className = 'small';
+  try {
+    await post('/api/resend-verification', { email: $('verifyEmail').textContent });
+    m.textContent = 'Verification email sent. Check your inbox.'; m.className = 'small ok';
+  } catch (x) {
+    m.textContent = x.message; m.className = 'small bad';
+  }
+  setTimeout(() => { btn.disabled = false; }, 5000);
+};
+
 $('btnFb').onclick = async () => {
   const m = $('fbMsg'), t = $('fbText').value.trim(); if (!t) { m.textContent = 'Write something first'; m.className = 'small bad'; return; }
   try { await post('/api/feedback', { text: t, page: location.pathname + ' ' + (document.querySelector('#dashTabs .on')?.dataset.t || '') }); $('fbText').value = ''; m.textContent = 'Thank you. Your feedback has been sent.'; m.className = 'small ok'; }
@@ -314,52 +323,63 @@ function showEnrol(secret, otpauth, canSkip) {
   show('vEnrol');
 }
 
-$('fInvite').onsubmit = async e => {
-  e.preventDefault(); flash();
-  try { await post('/api/invite/check', { code: $('iCode').value }); inviteCode = $('iCode').value.trim();
-    $('inviteOk').textContent = 'Invite accepted. Create your vault below.'; $('fInvite').classList.add('hide'); $('fSignup').classList.remove('hide');
-  } catch (x) { if (x.data?.used) showUsedInvite('', x.message); else flash(x.message); }
-};
-$('showCodeLink').onclick = e => { e.preventDefault(); $('noCodeMsg').classList.add('hide'); $('codeEntry').classList.remove('hide'); };
-// ?code=CODE&email=... (the approval email's link) or ?code=CODE / ?invite=CODE opens straight on sign-up, validated behind the scenes
-{ const qs = new URLSearchParams(location.search), q = qs.get('code') || qs.get('invite'), prefillEmail = qs.get('email'); 
-  fromEmailLink = !!(q && prefillEmail);
-  if (q) { 
-    $('iCode').value = q; 
-    post('/api/invite/check', { code: q, email: prefillEmail || '' }).then(() => {
-      inviteCode = q;
-      document.querySelector('#vAuth .tabs [data-t=signup]').click();
-      $('inviteOk').textContent = 'You\'re approved. Create your vault.';
-      $('fInvite').classList.add('hide');
-      $('fSignup').classList.remove('hide');
-      if (prefillEmail) $('sEmail').value = prefillEmail;
-    }).catch(err => {
-      if (err.data?.used) return showUsedInvite(prefillEmail, fromEmailLink ? LINK_USED : err.message);
-      document.querySelector('#vAuth .tabs [data-t=signup]').click();
-      // From the email link: no invite-code field, just a way to ask for a new link
-      if (fromEmailLink) { $('showCodeLink').parentElement.classList.add('hide'); $('flash').textContent = LINK_BAD; $('flash').className = 'notice'; return; }
-      $('noCodeMsg').classList.add('hide');
-      $('codeEntry').classList.remove('hide');
-      flash(err.message);
-    });
-  } else if (qs.get('signup')) { 
-    document.querySelector('#vAuth .tabs [data-t=signup]').click(); 
+// Handle URL parameters
+{ const qs = new URLSearchParams(location.search);
+  const verifyToken = qs.get('verify');
+  const inviteCode = qs.get('code') || qs.get('invite');
+  const prefillEmail = qs.get('email');
+  
+  // Email verification from link
+  if (verifyToken) {
+    (async () => {
+      try {
+        const d = await post('/api/verify-email', { token: verifyToken });
+        token = d.token; enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip);
+        flash('Email verified! Now set up two-factor authentication.', true);
+      } catch (x) {
+        flash(x.message);
+        show('vAuth');
+        document.querySelector('#vAuth .tabs [data-t=login]').click();
+      }
+    })();
+  }
+  // Invite code from email link
+  else if (inviteCode) {
+    $('iCode').value = inviteCode;
+    $('codeEntry').classList.remove('hide');
+    $('showCodeLink').style.display = 'none';
+    if (prefillEmail) $('sEmail').value = prefillEmail;
+    document.querySelector('#vAuth .tabs [data-t=signup]').click();
+  }
+  // Direct signup
+  else if (qs.get('signup')) {
+    document.querySelector('#vAuth .tabs [data-t=signup]').click();
   }
 }
 $('fSignup').onsubmit = async e => {
   e.preventDefault(); const btn = e.submitter; flash();
   const sPhone = phoneOrStop('sPhone'); if (sPhone === null) return;
   if ($('sPw').value !== $('sPw2').value) { showPwMatch(); return flash('Passwords do not match'); }
-  busy(btn, true, 'Deriving keys...');
+  busy(btn, true, 'Creating account...');
   try {
     const kdfSalt = SMS.b64(SMS.rand(16));
     const k = await SMS.deriveFromPassword($('sPw').value, kdfSalt); ownerKey = k.ownerKey;
+    const inviteCode = $('iCode').value.trim() || null;
     const d = await post('/api/register', { name: $('sName').value, email: $('sEmail').value, phone: sPhone, authKey: k.authKey, kdfSalt, inviteCode });
-    token = d.token; enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip);
+    
+    if (d.needsVerify) {
+      // Email verification required
+      $('verifyEmail').textContent = d.email;
+      show('vVerify');
+      flash('');
+    } else {
+      // Valid invite code: proceed to 2FA enrol
+      token = d.token; enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip);
+    }
   } catch (x) {
-    if (x.data?.used) showUsedInvite($('sEmail').value, fromEmailLink ? LINK_USED : x.message);
-    else flash(fromEmailLink && /invite code/i.test(x.message) ? LINK_BAD : x.message);
-  } busy(btn, false, 'Create my vault');
+    flash(x.message);
+  }
+  busy(btn, false, 'Create my vault');
 };
 $('fLogin').onsubmit = async e => {
   e.preventDefault(); const btn = e.submitter; flash(); busy(btn, true, 'Unlocking...');
@@ -370,7 +390,16 @@ $('fLogin').onsubmit = async e => {
     const d = await post('/api/login', { email: $('lEmail').value, authKey: k.authKey, code: useRec ? '' : $('lCode').value, recovery: useRec ? $('lRec').value : '' });
     token = d.token;
     if (d.needsEnrol) { enrolLater = false; showEnrol(d.totpSecret, d.otpauth, d.canSkip); } else await loadDash();
-  } catch (x) { flash(x.message); } busy(btn, false, 'Unlock');
+  } catch (x) {
+    if (x.data?.needsVerify) {
+      $('verifyEmail').textContent = x.data.email;
+      show('vVerify');
+      flash('');
+    } else {
+      flash(x.message);
+    }
+  }
+  busy(btn, false, 'Unlock');
 };
 $('fEnrol').onsubmit = async e => {
   e.preventDefault(); flash();
