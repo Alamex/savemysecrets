@@ -33,11 +33,8 @@
     <button class="accent" style="width:100%">Unlock</button>
   </form>
   <form id="fSignup" class="hide">
-    <div id="inviteCodeSection">
-      <p class="small"><a href="#" id="showCodeLink">Have an invite code?</a></p>
-      <div id="codeEntry" class="hide">
-        <label>Invite code (optional)</label><input id="iCode" autocomplete="off" autocapitalize="characters">
-      </div>
+    <div id="codeEntry" class="hide">
+      <label>Invite code (optional)</label><input id="iCode" autocomplete="off" autocapitalize="characters">
     </div>
     <label>Your full name</label><input id="sName" required autocomplete="name">
     <label>Email</label><input id="sEmail" type="email" required autocomplete="email">
@@ -240,7 +237,6 @@ function showPwMatch() {
 document.addEventListener('input', e => { if (e.target.type === 'tel' && /^\+\+/.test(e.target.value)) e.target.value = e.target.value.replace(/^\++/, '+'); });
 const show = v => ['vAuth','vVerify','vEnrol','vRec','vSeal','vDash'].forEach(x => $(x).classList.toggle('hide', x !== v));
 const flash = (t, ok) => { $('flash').textContent = t || ''; $('flash').className = 'small ' + (ok ? 'ok' : 'bad'); };
-$('showCodeLink').onclick = e => { e.preventDefault(); $('codeEntry').classList.remove('hide'); $('showCodeLink').style.display = 'none'; };
 async function call(path, opts = {}) {
   const r = await fetch(path, { ...opts, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) } });
   const d = await r.json().catch(() => ({}));
@@ -347,7 +343,6 @@ function showEnrol(secret, otpauth, canSkip) {
   else if (inviteCode) {
     $('iCode').value = inviteCode;
     $('codeEntry').classList.remove('hide');
-    $('showCodeLink').style.display = 'none';
     if (prefillEmail) $('sEmail').value = prefillEmail;
     document.querySelector('#vAuth .tabs [data-t=signup]').click();
   }
