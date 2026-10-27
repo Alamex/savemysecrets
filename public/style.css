@@ -30,6 +30,7 @@ button,.btn{font:inherit;font-weight:600;background:var(--ink);color:var(--bg);b
 button.accent,.btn.accent{background:var(--accent);color:var(--accent-ink)}
 button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
 button:disabled{opacity:.5;cursor:default}
+.btn-header{font:inherit;font-weight:600;font-size:14px;background:var(--accent);color:var(--accent-ink);border:0;border-radius:8px;padding:8px 14px;text-decoration:none;display:inline-block;text-align:center}
 label{display:block;font-size:14px;color:var(--muted);margin:14px 0 6px}
 .check{display:flex;gap:8px;align-items:center;font-size:15px;color:var(--muted);margin:10px 0}
 .check input{width:auto}
