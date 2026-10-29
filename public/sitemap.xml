@@ -25,4 +25,13 @@
     <loc>https://savemysecrets.com/terms</loc>
     <priority>0.5</priority>
   </url>
+  <url>
+    <loc>https://savemysecrets.com/blog</loc>
+    <priority>0.7</priority>
+    <changefreq>weekly</changefreq>
+  </url>
+  <url>
+    <loc>https://savemysecrets.com/blog/lost-bitcoin-fortunes</loc>
+    <priority>0.6</priority>
+  </url>
 </urlset>
